@@ -672,6 +672,7 @@ def patch_hardcoded_frontend_strings(app_dir: Path) -> None:
         'label:"协作",ariaLabel:"协作"': 'label:"Cowork[协作]",ariaLabel:"Cowork[协作]"',
         'label:"Code",ariaLabel:"Code"': 'label:"Code[代码]",ariaLabel:"Code[代码]"',
         'label:"代码",ariaLabel:"代码"': 'label:"Code[代码]",ariaLabel:"Code[代码]"',
+        'label:"Cowork"},code:{mode:"code",icon:"Code",label:"Code"': 'label:"Cowork[协作]"},code:{mode:"code",icon:"Code",label:"Code[代码]"',
         '"Projects"': '"项目"',
         '"Scheduled"': '"计划任务"',
         '"Customize"': '"自定义"',

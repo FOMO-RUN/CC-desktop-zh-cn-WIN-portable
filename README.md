@@ -6,6 +6,12 @@ Windows 上的 CC Desktop 中文绿色版工具。
 
 > CC 在本项目中指 Claude/Claude Code 相关桌面体验的缩写。本项目是独立社区工具，非官方项目。发布或使用前请阅读 [DISCLAIMER.md](DISCLAIMER.md)。
 
+## 参考与致谢
+
+本项目的中文资源整理与补丁思路参考了 [javaht/claude-desktop-zh-cn](https://github.com/javaht/claude-desktop-zh-cn)。感谢原项目作者和贡献者对 Claude Desktop 中文化实践的探索与分享。
+
+本项目在此基础上面向 Windows 绿色版 / 便携化使用场景做了独立实现与扩展。
+
 ## 功能
 
 - 生成或更新中文绿色版副本。

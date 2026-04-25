@@ -1,4 +1,4 @@
-# CC Desktop zh-CN Portable
+# CC Desktop zh-CN WIN Portable
 
 Windows 上的 CC Desktop 中文绿色版工具。
 

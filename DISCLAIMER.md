@@ -1,6 +1,6 @@
 # Disclaimer
 
-CC Desktop zh-CN Portable is an independent community tool. It is not affiliated
+CC Desktop zh-CN WIN Portable is an independent community tool. It is not affiliated
 with, endorsed by, sponsored by, or officially connected to Anthropic, Claude,
 or Claude Desktop.
 
@@ -22,7 +22,7 @@ forking or publishing this project.
 
 ## 中文说明
 
-CC Desktop zh-CN Portable 是一个独立社区工具，不隶属于 Anthropic、Claude 或
+CC Desktop zh-CN WIN Portable 是一个独立社区工具，不隶属于 Anthropic、Claude 或
 Claude Desktop，也未获得其官方背书、赞助或授权。
 
 本仓库不分发 Claude Desktop、官方安装包、MSIX 包、应用二进制文件、账号数据、

@@ -42,19 +42,19 @@ git config --global user.email "your-email@example.com"
 Suggested repository name:
 
 ```text
-cc-desktop-zh-cn-portable
+CC-desktop-zh-cn-WIN-portable
 ```
 
 Create and push:
 
 ```powershell
-gh repo create cc-desktop-zh-cn-portable --public --source . --remote origin --push
+gh repo create CC-desktop-zh-cn-WIN-portable --public --source . --remote origin --push
 ```
 
 Or with the Scoop shim path:
 
 ```powershell
-& "$env:USERPROFILE\scoop\shims\gh.exe" repo create cc-desktop-zh-cn-portable --public --source . --remote origin --push
+& "$env:USERPROFILE\scoop\shims\gh.exe" repo create CC-desktop-zh-cn-WIN-portable --public --source . --remote origin --push
 ```
 
 ## 4. Before publishing

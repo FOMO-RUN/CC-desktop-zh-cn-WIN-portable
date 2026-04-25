@@ -680,6 +680,111 @@ def patch_hardcoded_frontend_strings(app_dir: Path) -> None:
         '"Let go"': '"松开"',
         '"Recents"': '"最近使用"',
         '"View all"': '"查看全部"',
+        'connection:{title:"Connection",description:"Choose where Claude Desktop sends inference requests."}': 'connection:{title:"连接",description:"选择 Claude Desktop 发送推理请求的位置。"}',
+        'sandbox:{title:"Sandbox & workspace"}': 'sandbox:{title:"沙盒与工作区"}',
+        'connectors:{title:"Connectors & extensions"}': 'connectors:{title:"连接器与扩展"}',
+        'telemetry:{title:"Telemetry & updates"': 'telemetry:{title:"遥测与更新"',
+        'limits:{title:"Usage limits"}': 'limits:{title:"使用限制"}',
+        'plugins:{title:"Plugins & skills"': 'plugins:{title:"插件与技能"',
+        'egress:{title:"Egress Requirements"': 'egress:{title:"出站网络要求"',
+        'source:{title:"Source"}': 'source:{title:"来源"}',
+        'banner:"Prompts, completions, and your data are never sent to Anthropic — telemetry covers crash and usage signals only."': 'banner:"提示词、补全内容和你的数据不会发送给 Anthropic；遥测只包含崩溃和使用情况信号。"',
+        'banner:"Plugins and skills aren\'t set in this configuration. Mount plugin bundles to the folder below using your device-management tool and Cowork will load them at launch."': 'banner:"插件和技能不在此配置中直接设置。请用设备管理工具把插件包挂载到下面的文件夹，Cowork 会在启动时加载。"',
+        'caption:"Drop plugin folders here. Read-only to the app."': 'caption:"将插件文件夹放在这里。应用内只读。"',
+        'description:"Hosts your network firewall must allow, derived from your current settings. This list is read-only and updates as you make changes. Traffic is HTTPS on port 443 unless a custom port is specified (OTLP, gateway, or MCP server URLs)."': 'description:"根据当前设置推导出的网络防火墙放行主机列表。此列表只读，并会随配置变化更新。除非 OTLP、网关或 MCP 服务器 URL 指定了自定义端口，否则流量使用 443 端口的 HTTPS。"',
+        'group:"Identity & models"': 'group:"身份与模型"',
+        'group:"Bootstrap config URL"': 'group:"引导配置 URL"',
+        'group:"Extensions"': 'group:"扩展"',
+        'group:"MCP servers"': 'group:"MCP 服务器"',
+        'group:"Anthropic telemetry"': 'group:"Anthropic 遥测"',
+        'title:"Allow desktop extensions"': 'title:"允许桌面扩展"',
+        'title:"Show extension directory"': 'title:"显示扩展目录"',
+        'title:"Require signed extensions"': 'title:"要求扩展签名"',
+        'title:"Allow user-added MCP servers"': 'title:"允许用户添加 MCP 服务器"',
+        'title:"Allow Claude Code tab"': 'title:"允许 Claude Code 标签页"',
+        'title:"Secure VM features"': 'title:"安全 VM 功能"',
+        'title:"Require full VM sandbox"': 'title:"强制完整 VM 沙盒"',
+        'title:"Allowed egress hosts"': 'title:"允许出站主机"',
+        'title:"OpenTelemetry collector endpoint"': 'title:"OpenTelemetry 收集器端点"',
+        'title:"OpenTelemetry exporter protocol"': 'title:"OpenTelemetry 导出协议"',
+        'title:"OpenTelemetry exporter headers"': 'title:"OpenTelemetry 导出请求头"',
+        'title:"Auto-update enforcement window"': 'title:"自动更新强制窗口"',
+        'title:"Block auto-updates"': 'title:"阻止自动更新"',
+        'title:"Skip login-mode chooser"': 'title:"跳过登录模式选择"',
+        'title:"Required organization"': 'title:"限定组织"',
+        'title:"Inference provider"': 'title:"推理提供方"',
+        'title:"Gateway base URL"': 'title:"网关基础 URL"',
+        'title:"Gateway API key"': 'title:"网关 API 密钥"',
+        'title:"Gateway auth scheme"': 'title:"网关认证方式"',
+        'title:"Gateway extra headers"': 'title:"网关额外请求头"',
+        'title:"GCP project ID"': 'title:"GCP 项目 ID"',
+        'title:"GCP region"': 'title:"GCP 区域"',
+        'title:"GCP credentials file path"': 'title:"GCP 凭据文件路径"',
+        'title:"Vertex OAuth client ID"': 'title:"Vertex OAuth 客户端 ID"',
+        'title:"Vertex OAuth client secret"': 'title:"Vertex OAuth 客户端密钥"',
+        'title:"Vertex OAuth scopes"': 'title:"Vertex OAuth 权限范围"',
+        'title:"Vertex AI base URL"': 'title:"Vertex AI 基础 URL"',
+        'title:"AWS region"': 'title:"AWS 区域"',
+        'title:"AWS bearer token"': 'title:"AWS Bearer 令牌"',
+        'title:"Bedrock base URL"': 'title:"Bedrock 基础 URL"',
+        'title:"AWS profile name"': 'title:"AWS 配置档名称"',
+        'title:"AWS config directory"': 'title:"AWS 配置目录"',
+        'title:"Azure AI Foundry resource name"': 'title:"Azure AI Foundry 资源名称"',
+        'title:"Azure AI Foundry API key"': 'title:"Azure AI Foundry API 密钥"',
+        'title:"Model list"': 'title:"模型列表"',
+        'title:"Organization UUID"': 'title:"组织 UUID"',
+        'title:"Block essential telemetry"': 'title:"阻止必要遥测"',
+        'title:"Block nonessential telemetry"': 'title:"阻止非必要遥测"',
+        'title:"Block nonessential services"': 'title:"阻止非必要服务"',
+        'title:"Managed MCP servers"': 'title:"托管 MCP 服务器"',
+        'title:"Disabled built-in tools"': 'title:"停用内置工具"',
+        'title:"Allowed workspace folders"': 'title:"允许的工作区文件夹"',
+        'title:"Credential helper script"': 'title:"凭据辅助脚本"',
+        'title:"Credential helper TTL"': 'title:"凭据辅助缓存时间"',
+        'title:"Use bootstrap config"': 'title:"使用引导配置"',
+        'title:"Bootstrap config URL"': 'title:"引导配置 URL"',
+        'title:"Bootstrap OIDC parameters"': 'title:"引导 OIDC 参数"',
+        'title:"Max tokens per window"': 'title:"每个窗口最大令牌数"',
+        'title:"Token cap window"': 'title:"令牌上限窗口"',
+        'description:"Full URL of the inference gateway endpoint."': 'description:"推理网关端点的完整 URL。"',
+        'description:"Selects the inference backend. Setting this key activates third-party mode."': 'description:"选择推理后端。设置此项会启用第三方模式。"',
+        'description:"Extra HTTP headers sent on every inference request. JSON array of \'Name: Value\' strings."': 'description:"每次推理请求都会发送的额外 HTTP 请求头。格式为由 \'Name: Value\' 字符串组成的 JSON 数组。"',
+        'hint:"Bearer (default) sends Authorization: Bearer. x-api-key is for the Anthropic API directly — auto-selected when the URL is *.anthropic.com."': 'hint:"Bearer（默认）会发送 Authorization: Bearer。x-api-key 用于直连 Anthropic API；当 URL 为 *.anthropic.com 时会自动选择。"',
+        'hint:"Extra headers sent to the gateway, one \'Name: Value\' per entry. For tenant routing, org IDs, etc."': 'hint:"发送到网关的额外请求头，每项一个 \'Name: Value\'。可用于租户路由、组织 ID 等。"',
+        'hint:"First entry is the picker default. Aliases like sonnet, opus accepted. Optional for gateway — when set, the picker shows exactly this list instead of /v1/models discovery. Turn on 1M context only for models your provider actually serves with the extended window."': 'hint:"第一项是选择器默认模型。支持 sonnet、opus 等别名。网关可不填；填写后，模型选择器会严格显示此列表，而不是通过 /v1/models 发现。只有在提供方实际支持扩展上下文窗口时，才开启 1M 上下文。"',
+        'hint:"Tags telemetry events with your org so support can find them. Not used for auth."': 'hint:"给遥测事件打上组织标记，方便支持人员定位；不用于认证。"',
+        'hint:"Go straight to this provider at launch — users won\'t see the option to sign in to Anthropic instead."': 'hint:"启动时直接进入此提供方；用户不会再看到改用 Anthropic 登录的选项。"',
+        'hint:"GCP region where your Vertex AI Claude models are deployed."': 'hint:"部署 Vertex AI Claude 模型的 GCP 区域。"',
+        'hint:"Absolute path to service-account JSON. Leave blank to fall back to ADC."': 'hint:"服务账号 JSON 的绝对路径。留空则回退到 ADC。"',
+        'hint:"Desktop-app OAuth client ID — enables Sign in with Google instead of a credentials file."': 'hint:"桌面应用 OAuth 客户端 ID；用于通过 Google 登录代替凭据文件。"',
+        'hint:"Secret for the Desktop-app OAuth client above."': 'hint:"上方桌面应用 OAuth 客户端的密钥。"',
+        'hint:"Override the Google OAuth scopes (space-separated). Leave blank for the default."': 'hint:"覆盖 Google OAuth 权限范围，用空格分隔。留空则使用默认值。"',
+        'hint:"PSC endpoint, if using one."': 'hint:"如使用 PSC，请填写其端点。"',
+        'hint:"Overrides profile when both are set."': 'hint:"同时设置时会覆盖配置档。"',
+        'hint:"For VPC endpoints or gateway proxies."': 'hint:"用于 VPC 端点或网关代理。"',
+        'hint:"Ignored if a bearer token is set."': 'hint:"如果已设置 Bearer 令牌，则忽略此项。"',
+        'hint:"Folder with AWS config/credentials. Defaults to ~/.aws when no bearer token is set."': 'hint:"包含 AWS config/credentials 的文件夹。未设置 Bearer 令牌时默认使用 ~/.aws。"',
+        'hint:"Absolute path to an executable that prints the credential."': 'hint:"可执行文件的绝对路径，该程序应输出凭据。"',
+        'hint:"Runs tools inside an isolated VM instead of the host. Stronger isolation; slower file access and no host-process tools."': 'hint:"在隔离 VM 内运行工具，而不是在主机上运行。隔离更强，但文件访问更慢，且不能使用主机进程工具。"',
+        'hint:"Domains Cowork\'s tools may reach during a turn. Also surfaced under Egress Requirements."': 'hint:"Cowork 工具在一次回合中允许访问的域名，也会显示在“出站网络要求”中。"',
+        'hint:"Folders users may attach as a workspace. Leave unset for unrestricted access."': 'hint:"用户可作为工作区附加的文件夹。留空表示不限制。"',
+        'hint:"Built-in tools removed from Cowork."': 'hint:"从 Cowork 中移除的内置工具。"',
+        'hint:".dxt and .mcpb installs."': 'hint:".dxt 和 .mcpb 安装。"',
+        'hint:"The in-app catalogue of installable extensions. Hide to allow sideload only."': 'hint:"应用内可安装扩展目录。隐藏后只允许侧载。"',
+        'hint:"Local stdio servers added via the Developer settings. Remote servers come from the managed list above, or plugins mounted to a user\'s computer by an organization admin."': 'hint:"通过开发者设置添加的本地 stdio 服务器。远程服务器来自上方托管列表，或由组织管理员挂载到用户电脑上的插件。"',
+        'hint:"Org-pushed remote MCP servers. May embed bearer tokens."': 'hint:"组织下发的远程 MCP 服务器。可能包含 Bearer 令牌。"',
+        'hint:"Crash and performance reports to Anthropic."': 'hint:"发送给 Anthropic 的崩溃和性能报告。"',
+        'hint:"Product-usage analytics and diagnostic-report uploads. No message content."': 'hint:"产品使用分析和诊断报告上传，不包含消息内容。"',
+        'hint:"Favicon fetch and the artifact-preview iframe origin. Artifacts will not render."': 'hint:"网站图标获取和 Artifact 预览 iframe 源。禁用后 Artifact 不会渲染。"',
+        'label:"Model ID"': 'label:"模型 ID"',
+        'label:"Offer 1M-context variant"': 'label:"提供 1M 上下文变体"',
+        'label:"Name"': 'label:"名称"',
+        'label:"URL"': 'label:"URL"',
+        'label:"Transport"': 'label:"传输方式"',
+        'label:"OAuth"': 'label:"OAuth"',
+        'label:"Headers"': 'label:"请求头"',
+        'label:"Headers helper script"': 'label:"请求头辅助脚本"',
+        'label:"Helper cache TTL (sec)"': 'label:"辅助缓存时间（秒）"',
     }
     patched_files = 0
     patched_strings = 0
@@ -700,6 +805,23 @@ def patch_hardcoded_frontend_strings(app_dir: Path) -> None:
             patched_strings += count
 
     print(f"Patched hardcoded frontend strings: {patched_strings} replacements in {patched_files} files")
+
+
+def apply_locale_resources(app_dir: Path, dry_run: bool = False) -> int:
+    app_dir = app_dir.expanduser()
+    if not (app_dir / FRONTEND_I18N_REL / "en-US.json").exists():
+        print(f"Claude frontend resources were not found, skipping locale patch: {app_dir}")
+        return 0
+
+    require_file(FRONTEND_TRANSLATION)
+    require_file(DESKTOP_TRANSLATION)
+    patch_language_whitelist(app_dir)
+    patch_hardcoded_frontend_strings(app_dir)
+    merge_frontend_locale(app_dir)
+    install_desktop_locale(app_dir)
+    install_statsig_locale(app_dir)
+    patch_hardcoded_desktop_menu_strings(app_dir, dry_run)
+    return 0
 
 
 def merge_frontend_locale(app_dir: Path) -> tuple[int, int, int]:
@@ -1456,7 +1578,7 @@ def apply_user_settings(target_dir: Path) -> int:
     set_user_locale(False)
     enable_developer_mode(False)
     apply_third_party_inference_config(False)
-    patch_hardcoded_desktop_menu_strings(target_dir, False)
+    apply_locale_resources(target_dir, False)
     patch_cowork_portable_detection(target_dir, False)
     try:
         create_shortcuts(target_dir)
@@ -1571,6 +1693,7 @@ def main() -> int:
     parser.add_argument("--apply-third-party-inference", action="store_true", help="Apply local Claude Code gateway settings to Claude Desktop third-party inference")
     parser.add_argument("--apply-cowork-compat", action="store_true", help="Patch portable Claude so Cowork does not require the MSIX launch path")
     parser.add_argument("--patch-desktop-menu", action="store_true", help="Patch hardcoded desktop menu strings into zh-CN")
+    parser.add_argument("--apply-locale", action="store_true", help="Apply zh-CN locale resources to the patched copy without reinstalling")
     parser.add_argument("--clean-user-data", action="store_true", help="Move Claude user config/account data to a timestamped backup")
     parser.add_argument("--create-shortcuts", action="store_true", help="Create Desktop and Start Menu shortcuts for the patched copy")
     parser.add_argument("--apply-user-settings", action="store_true", help="Set zh-CN locale, enable developer mode, and create shortcuts")
@@ -1593,6 +1716,8 @@ def main() -> int:
         return patch_cowork_portable_detection(args.target_dir, False)
     if args.patch_desktop_menu:
         return patch_hardcoded_desktop_menu_strings(args.target_dir, False)
+    if args.apply_locale:
+        return apply_locale_resources(args.target_dir, False)
     if args.clean_user_data:
         return clean_user_data(args.yes)
     if args.create_shortcuts:
@@ -1606,12 +1731,7 @@ def main() -> int:
     require_file(DESKTOP_TRANSLATION)
 
     app_dir = prepare_app(args)
-    patch_language_whitelist(app_dir)
-    patch_hardcoded_frontend_strings(app_dir)
-    merge_frontend_locale(app_dir)
-    install_desktop_locale(app_dir)
-    install_statsig_locale(app_dir)
-    patch_hardcoded_desktop_menu_strings(app_dir, args.dry_run)
+    apply_locale_resources(app_dir, args.dry_run)
     patch_cowork_portable_detection(app_dir, args.dry_run)
     set_user_locale(args.dry_run)
     enable_developer_mode(args.dry_run)

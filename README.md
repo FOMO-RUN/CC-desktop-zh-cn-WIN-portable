@@ -12,6 +12,7 @@ Windows 上的 CC Desktop 中文绿色版工具。
 - 检查官方最新版和本地绿色副本版本。
 - 自动合并前端中文翻译资源。
 - 自动汉化部分桌面菜单中的硬编码开发者项目。
+- 自动汉化第三方推理设置页中的硬编码字段名和说明。
 - 自动启用 Developer Mode。
 - 自动探测本地 Claude Code gateway 配置，并写入 Desktop 的 Third-Party Inference 配置。
 - 自动应用 Code / Cowork 绿色版兼容修复。

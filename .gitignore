@@ -6,6 +6,7 @@ venv/
 *.log
 
 # Local build/runtime artifacts
+dist/
 downloads/
 Claude/
 ClaudeZhCN/

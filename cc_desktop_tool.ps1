@@ -104,7 +104,7 @@ while ($true) {
   Write-Host "3. Locate user config/account data"
   Write-Host "4. Clean user config/account data"
   Write-Host "5. Launch patched Claude"
-  Write-Host "6. Create Desktop and Start Menu shortcuts"
+  Write-Host "6. Create Claude and Claude Code shortcuts"
   Write-Host "7. Full clean portable zh-CN tool files"
   Write-Host "8. Apply local Claude Code gateway settings"
   Write-Host "9. Apply Cowork compatibility fix"

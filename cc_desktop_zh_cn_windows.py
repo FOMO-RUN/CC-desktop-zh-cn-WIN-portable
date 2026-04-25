@@ -352,6 +352,10 @@ def show_user_data(target_dir: Path) -> int:
     print_path_info("launcher", launcher_path())
     print_path_info("download cache", tool_root() / "downloads")
     print_path_info("user data backups", tool_root() / "user-data-backups")
+    for label, path in shortcut_paths().items():
+        print_path_info(f"{label} shortcut", path)
+    for label, path in claude_code_shortcut_paths().items():
+        print_path_info(f"{label} shortcut", path)
     print()
     print("Claude user config/account data paths:")
     for path in user_data_paths():
@@ -381,6 +385,40 @@ def shortcut_paths() -> dict[str, Path]:
         "desktop": Path.home() / "Desktop" / "Claude zh-CN.lnk",
         "start_menu": roaming_app_data() / "Microsoft/Windows/Start Menu/Programs/Claude zh-CN.lnk",
     }
+
+
+def claude_code_shortcut_paths() -> dict[str, Path]:
+    return {
+        "desktop Claude Code": Path.home() / "Desktop" / "Claude Code.lnk",
+        "start menu Claude Code": roaming_app_data() / "Microsoft/Windows/Start Menu/Programs/Claude Code.lnk",
+    }
+
+
+def claude_code_command() -> Path | None:
+    command = shutil.which("claude")
+    candidates = []
+    if command:
+        candidates.append(Path(command))
+    candidates.extend(
+        [
+            Path.home() / ".local/bin/claude.exe",
+            Path.home() / ".local/bin/claude.cmd",
+            Path.home() / ".local/bin/claude.bat",
+            roaming_app_data() / "npm/claude.cmd",
+            roaming_app_data() / "npm/claude.exe",
+            roaming_app_data() / "npm/claude.bat",
+        ]
+    )
+
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = str(candidate).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        if candidate.exists() and candidate.suffix.lower() in {".exe", ".cmd", ".bat"}:
+            return candidate
+    return None
 
 
 def create_launcher(target_dir: Path) -> Path:
@@ -446,6 +484,23 @@ def create_shortcuts(target_dir: Path) -> int:
             icon=exe,
         )
         print(f"Created {label} shortcut: {shortcut}")
+
+    claude_code = claude_code_command()
+    if not claude_code:
+        print("Claude Code command was not found, skipping Claude Code shortcuts.")
+        return 0
+
+    cmd = Path(os.environ.get("ComSpec") or (Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32/cmd.exe"))
+    for label, shortcut in claude_code_shortcut_paths().items():
+        create_windows_shortcut(
+            shortcut,
+            cmd,
+            "Claude Code",
+            arguments=f'/k ""{claude_code}""',
+            working_directory=Path.home(),
+            icon=claude_code,
+        )
+        print(f"Created {label} shortcut: {shortcut}")
     return 0
 
 
@@ -467,6 +522,8 @@ def full_clean(target_dir: Path, yes: bool) -> int:
         ("user data backups", tool_root() / "user-data-backups"),
         ("desktop shortcut", shortcut_paths()["desktop"]),
         ("start menu shortcut", shortcut_paths()["start_menu"]),
+        ("desktop Claude Code shortcut", claude_code_shortcut_paths()["desktop Claude Code"]),
+        ("start menu Claude Code shortcut", claude_code_shortcut_paths()["start menu Claude Code"]),
     ]
 
     print("The following zh-CN tool files will be permanently deleted if they exist:")
@@ -1767,7 +1824,7 @@ def main() -> int:
     parser.add_argument("--patch-desktop-menu", action="store_true", help="Patch hardcoded desktop menu strings into zh-CN")
     parser.add_argument("--apply-locale", action="store_true", help="Apply zh-CN locale resources to the patched copy without reinstalling")
     parser.add_argument("--clean-user-data", action="store_true", help="Move Claude user config/account data to a timestamped backup")
-    parser.add_argument("--create-shortcuts", action="store_true", help="Create Desktop and Start Menu shortcuts for the patched copy")
+    parser.add_argument("--create-shortcuts", action="store_true", help="Create Desktop and Start Menu shortcuts for Claude zh-CN and Claude Code")
     parser.add_argument("--apply-user-settings", action="store_true", help="Set zh-CN locale, enable developer mode, and create shortcuts")
     parser.add_argument("--full-clean", action="store_true", help="Delete patched app, download cache, backups, and shortcuts")
     parser.add_argument("--yes", action="store_true", help="Skip confirmation prompts for destructive maintenance actions")

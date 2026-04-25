@@ -104,7 +104,7 @@ while ($true) {
   Write-Host "3. 定位用户配置/账号数据"
   Write-Host "4. 清理用户配置/账号数据"
   Write-Host "5. 启动汉化版 Claude"
-  Write-Host "6. 创建桌面和开始菜单快捷方式"
+  Write-Host "6. 创建 Claude 和 Claude Code 快捷方式"
   Write-Host "7. 完全清理绿色版文件"
   Write-Host "8. 应用本地 Claude Code 网关配置"
   Write-Host "9. 应用 Cowork 兼容修复"

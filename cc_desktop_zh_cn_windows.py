@@ -1103,6 +1103,9 @@ def patch_asar_file_content_and_integrity(
     old_token: bytes,
     new_token: bytes,
 ) -> tuple[int, int, str, str]:
+    if len(old_token) != len(new_token):
+        raise ValueError("ASAR in-place token replacements must keep the same byte length.")
+
     data = bytearray(asar.read_bytes())
     json_start, json_end, content_base, header = parse_asar(bytes(data))
     old_header_hash = sha256_hex(bytes(data[json_start:json_end]))
@@ -1181,7 +1184,12 @@ def backup_header_hashes(asar: Path) -> list[str]:
     return hashes
 
 
-def patch_exe_asar_header_hash(app_dir: Path, expected_hash: str, old_hashes: list[str]) -> None:
+def patch_exe_asar_header_hash(
+    app_dir: Path,
+    expected_hash: str,
+    old_hashes: list[str],
+    reason: str = "before-asar-hash-update",
+) -> None:
     exe = app_exe(app_dir)
     if not exe:
         raise SystemExit(f"Cannot find Claude.exe in {app_dir}")
@@ -1197,7 +1205,7 @@ def patch_exe_asar_header_hash(app_dir: Path, expected_hash: str, old_hashes: li
         if old_token not in data:
             continue
 
-        backup = backup_file(exe, "before-cowork-compat")
+        backup = backup_file(exe, reason)
         tmp = exe.with_suffix(exe.suffix + ".tmp")
         tmp.write_bytes(data.replace(old_token, expected_token, 1))
         try:
@@ -1217,6 +1225,101 @@ def patch_exe_asar_header_hash(app_dir: Path, expected_hash: str, old_hashes: li
         "Could not find the old ASAR header hash in Claude.exe. "
         "Rebuild the zh-CN copy from option 1, then run option 9 again if needed."
     )
+
+
+def padded_utf8_replacement(source: str, target: str) -> bytes:
+    source_bytes = source.encode("utf-8")
+    target_bytes = target.encode("utf-8")
+    if len(target_bytes) > len(source_bytes):
+        raise ValueError(f"Replacement is too long: {target!r} for {source!r}")
+    return target_bytes + (b" " * (len(source_bytes) - len(target_bytes)))
+
+
+def count_asar_tokens(asar: Path, tokens: list[bytes]) -> dict[bytes, int]:
+    data = asar.read_bytes()
+    _, _, content_base, header = parse_asar(data)
+    counts = {token: 0 for token in tokens}
+    for _, entry in asar_file_entries(header):
+        try:
+            offset = content_base + int(entry["offset"])
+            size = int(entry["size"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        chunk = data[offset : offset + size]
+        for token in tokens:
+            counts[token] += chunk.count(token)
+    return counts
+
+
+def patch_hardcoded_desktop_menu_strings(app_dir: Path, dry_run: bool = False) -> int:
+    asar = app_dir.expanduser() / "resources/app.asar"
+    if not asar.exists():
+        print(f"Claude app.asar was not found, skipping desktop menu string patch: {asar}")
+        return 0
+
+    menu_replacements: dict[str, str] = {
+        "Enable Main Process Debugger": "启用主进程调试器",
+        "Record Performance Trace": "记录性能跟踪",
+        "Write Main Process Heap Snapshot": "写入主进程堆快照",
+        "Record Memory Trace (auto-stop)": "内存跟踪(自动停止)",
+    }
+    replacements = [
+        (source.encode("utf-8"), padded_utf8_replacement(source, target))
+        for source, target in menu_replacements.items()
+    ]
+
+    counts = count_asar_tokens(asar, [source for source, _ in replacements])
+    total = sum(counts.values())
+    if total == 0:
+        print(f"Hardcoded desktop menu strings are already patched or not present: {asar}")
+        return 0
+
+    if dry_run:
+        print(f"[dry-run] Would patch {total} hardcoded desktop menu string(s) in {asar}.")
+        return 0
+
+    backup = backup_file(asar, "before-desktop-menu-zh-CN")
+    old_header_hashes: list[str] = []
+    final_header_hash = asar_header_hash(asar.read_bytes())
+    patched_total = 0
+    patched_files_total = 0
+
+    try:
+        for source, target in replacements:
+            patched_files, patched_tokens, old_header_hash, new_header_hash = patch_asar_file_content_and_integrity(
+                asar,
+                source,
+                target,
+            )
+            if patched_tokens:
+                old_header_hashes.append(old_header_hash)
+                final_header_hash = new_header_hash
+                patched_total += patched_tokens
+                patched_files_total += patched_files
+    except PermissionError:
+        if backup.exists():
+            shutil.copy2(backup, asar)
+        raise SystemExit(
+            "Could not patch desktop menu strings because Windows denied access. "
+            "Close Claude completely, then run the patch again."
+        )
+    except Exception:
+        if backup.exists():
+            shutil.copy2(backup, asar)
+        raise
+
+    print(f"Backed up Claude app.asar: {backup}")
+    print(
+        f"Patched hardcoded desktop menu strings: "
+        f"{patched_total} replacement(s) in {patched_files_total} file patch(es)"
+    )
+    patch_exe_asar_header_hash(
+        app_dir,
+        final_header_hash,
+        [*old_header_hashes, *backup_header_hashes(asar)],
+        "before-desktop-menu-zh-CN",
+    )
+    return 0
 
 
 def patch_cowork_portable_detection(app_dir: Path, dry_run: bool = False) -> int:
@@ -1243,7 +1346,7 @@ def patch_cowork_portable_detection(app_dir: Path, dry_run: bool = False) -> int
     if portable_count > 0 and token_count == 0:
         print(f"Cowork portable compatibility patch is already applied: {asar}")
         current_hash = asar_header_hash(data)
-        patch_exe_asar_header_hash(app_dir, current_hash, backup_header_hashes(asar))
+        patch_exe_asar_header_hash(app_dir, current_hash, backup_header_hashes(asar), "before-cowork-compat")
         create_launcher(app_dir)
         return 0
 
@@ -1280,7 +1383,12 @@ def patch_cowork_portable_detection(app_dir: Path, dry_run: bool = False) -> int
         f"Applied Cowork portable compatibility patch: {asar} "
         f"({patched_tokens} occurrence(s) in {patched_files} file(s))"
     )
-    patch_exe_asar_header_hash(app_dir, new_header_hash, [old_header_hash, *backup_header_hashes(asar)])
+    patch_exe_asar_header_hash(
+        app_dir,
+        new_header_hash,
+        [old_header_hash, *backup_header_hashes(asar)],
+        "before-cowork-compat",
+    )
     create_launcher(app_dir)
     return 0
 
@@ -1348,6 +1456,7 @@ def apply_user_settings(target_dir: Path) -> int:
     set_user_locale(False)
     enable_developer_mode(False)
     apply_third_party_inference_config(False)
+    patch_hardcoded_desktop_menu_strings(target_dir, False)
     patch_cowork_portable_detection(target_dir, False)
     try:
         create_shortcuts(target_dir)
@@ -1461,6 +1570,7 @@ def main() -> int:
     parser.add_argument("--show-third-party-inference", action="store_true", help="Show local Claude Code and Desktop third-party inference config")
     parser.add_argument("--apply-third-party-inference", action="store_true", help="Apply local Claude Code gateway settings to Claude Desktop third-party inference")
     parser.add_argument("--apply-cowork-compat", action="store_true", help="Patch portable Claude so Cowork does not require the MSIX launch path")
+    parser.add_argument("--patch-desktop-menu", action="store_true", help="Patch hardcoded desktop menu strings into zh-CN")
     parser.add_argument("--clean-user-data", action="store_true", help="Move Claude user config/account data to a timestamped backup")
     parser.add_argument("--create-shortcuts", action="store_true", help="Create Desktop and Start Menu shortcuts for the patched copy")
     parser.add_argument("--apply-user-settings", action="store_true", help="Set zh-CN locale, enable developer mode, and create shortcuts")
@@ -1481,6 +1591,8 @@ def main() -> int:
         return apply_third_party_inference_config(False)
     if args.apply_cowork_compat:
         return patch_cowork_portable_detection(args.target_dir, False)
+    if args.patch_desktop_menu:
+        return patch_hardcoded_desktop_menu_strings(args.target_dir, False)
     if args.clean_user_data:
         return clean_user_data(args.yes)
     if args.create_shortcuts:
@@ -1499,6 +1611,7 @@ def main() -> int:
     merge_frontend_locale(app_dir)
     install_desktop_locale(app_dir)
     install_statsig_locale(app_dir)
+    patch_hardcoded_desktop_menu_strings(app_dir, args.dry_run)
     patch_cowork_portable_detection(app_dir, args.dry_run)
     set_user_locale(args.dry_run)
     enable_developer_mode(args.dry_run)

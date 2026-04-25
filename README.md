@@ -263,3 +263,7 @@ Cowork requires Claude Desktop be installed with our modern installer
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## 友情链接
+
+- [LINUX DO](https://linux.do/)

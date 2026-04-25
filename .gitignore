@@ -1,0 +1,28 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.log
+
+# Local build/runtime artifacts
+downloads/
+Claude/
+ClaudeZhCN/
+*.msix
+*.appx
+*.asar.tmp
+*.bak
+*.bak-*
+*.backup-before-*
+
+# User/private data
+.env
+*.token
+config.local.json
+settings.local.json
+
+# Editor/OS files
+.vscode/
+.idea/
+Thumbs.db

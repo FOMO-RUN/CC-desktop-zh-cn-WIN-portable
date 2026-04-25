@@ -666,6 +666,9 @@ def patch_hardcoded_frontend_strings(app_dir: Path) -> None:
     assets_dir = app_dir / FRONTEND_ASSETS_REL
     replacements = {
         '"New task"': '"新建任务"',
+        '"New session"': '"新会话"',
+        'label:"Cowork",ariaLabel:"Cowork"': 'label:"协作",ariaLabel:"协作"',
+        'label:"Code",ariaLabel:"Code"': 'label:"代码",ariaLabel:"代码"',
         '"Projects"': '"项目"',
         '"Scheduled"': '"计划任务"',
         '"Customize"': '"自定义"',

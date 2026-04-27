@@ -52,13 +52,32 @@ function Start-PatchedClaude {
 }
 
 function Apply-ThirdPartyInference {
-  Run-Patcher @("--show-third-party-inference")
-  Write-Host ""
-  $Apply = Read-Host "是否把检测到的本地 Claude Code 网关配置写入 Desktop? (Y/N)"
-  if ($Apply -match "^[Yy]") {
-    Run-Patcher @("--apply-third-party-inference")
-  } else {
-    Write-Host "已取消。"
+  Run-Patcher @("--third-party-wizard")
+}
+
+function Offer-ThirdPartyWizard {
+  Run-Patcher @("--check-third-party-sources")
+  if ($script:PatchStatus -eq 0) {
+    Write-Host ""
+    Write-Host "你可以保持全新配置，也可以导入第三方大模型推理配置。" -ForegroundColor Yellow
+    $OpenWizard = Read-Host "是否现在打开第三方大模型推理配置向导? (Y/N)"
+    if ($OpenWizard -match "^[Yy]") {
+      Run-Patcher @("--third-party-wizard")
+    } else {
+      Write-Host "已跳过配置导入。之后可通过菜单 8 再打开。"
+    }
+  }
+}
+
+function Stop-ClaudeProcesses {
+  Get-Process Claude -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+  Get-Process claude -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+}
+
+function Launch-AfterPatch {
+  if ($script:PatchStatus -eq 0) {
+    Offer-ThirdPartyWizard
+    Start-PatchedClaude
   }
 }
 
@@ -70,6 +89,7 @@ function Update-PatchedClaude {
     Write-Host ""
     Write-Host "已经是最新版，无需更新。" -ForegroundColor Green
     Run-Patcher @("--apply-user-settings")
+    Offer-ThirdPartyWizard
     $Launch = Read-Host "是否启动汉化版 Claude? (Y/N)"
     if ($Launch -match "^[Yy]") {
       Start-PatchedClaude
@@ -78,7 +98,10 @@ function Update-PatchedClaude {
   }
 
   if ($CheckStatus -ne 10) {
-    Write-Host "版本检查失败。" -ForegroundColor Red
+    Write-Host "版本检查失败，将回退到本机已安装的 Claude 继续汉化/启动。" -ForegroundColor Yellow
+    Stop-ClaudeProcesses
+    Run-Patcher @()
+    Launch-AfterPatch
     return
   }
 
@@ -89,15 +112,19 @@ function Update-PatchedClaude {
     return
   }
 
-  Get-Process Claude -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-  Get-Process claude -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-  Run-Patcher @("--force-download", "--launch")
+  Stop-ClaudeProcesses
+  Run-Patcher @("--force-download")
+  if ($script:PatchStatus -ne 0) {
+    Write-Host "下载/更新失败，将回退到本机已安装的 Claude 继续汉化/启动。" -ForegroundColor Yellow
+    Run-Patcher @()
+  }
+  Launch-AfterPatch
 }
 
 while ($true) {
   Write-Host ""
   Write-Host "========================================" -ForegroundColor Cyan
-  Write-Host " CC Desktop 中文绿色版工具" -ForegroundColor Cyan
+  Write-Host " WIN CC Desktop 中文绿色版工具" -ForegroundColor Cyan
   Write-Host "========================================" -ForegroundColor Cyan
   Write-Host "1. 汉化 / 更新 / 启动汉化版"
   Write-Host "2. 检查版本更新"
@@ -106,7 +133,7 @@ while ($true) {
   Write-Host "5. 启动汉化版 Claude"
   Write-Host "6. 创建 Claude 和 Claude Code 快捷方式"
   Write-Host "7. 完全清理绿色版文件"
-  Write-Host "8. 应用本地 Claude Code 网关配置"
+  Write-Host "8. 第三方大模型推理配置向导"
   Write-Host "9. 应用 Cowork 兼容修复"
   Write-Host "0. 退出"
   Write-Host ""
@@ -153,8 +180,7 @@ while ($true) {
     Write-Host ""
     $Confirm = Read-Host "输入 DELETE 确认清理用户配置/账号数据"
     if ($Confirm -eq "DELETE") {
-      Get-Process Claude -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-      Get-Process claude -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+      Stop-ClaudeProcesses
       Run-Patcher @("--clean-user-data", "--yes")
     } else {
       Write-Host "已取消。"
@@ -178,12 +204,11 @@ while ($true) {
 
   if ($Choice -eq "7") {
     Write-Host ""
-    Write-Host "这会删除汉化副本、下载缓存、备份和快捷方式。" -ForegroundColor Yellow
+    Write-Host "这会删除汉化副本、下载缓存和快捷方式，但保留备份。" -ForegroundColor Yellow
     Write-Host "不会删除 Claude 用户配置/账号数据。" -ForegroundColor Yellow
     $Confirm = Read-Host "输入 DELETE 确认完全清理绿色版文件"
     if ($Confirm -eq "DELETE") {
-      Get-Process Claude -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-      Get-Process claude -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+      Stop-ClaudeProcesses
       Run-Patcher @("--full-clean", "--yes")
     } else {
       Write-Host "已取消。"
@@ -199,8 +224,7 @@ while ($true) {
   }
 
   if ($Choice -eq "9") {
-    Get-Process Claude -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-    Get-Process claude -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Stop-ClaudeProcesses
     Run-Patcher @("--apply-cowork-compat")
     Run-Patcher @("--create-shortcuts")
     Pause-Menu

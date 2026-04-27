@@ -52,13 +52,32 @@ function Start-PatchedClaude {
 }
 
 function Apply-ThirdPartyInference {
-  Run-Patcher @("--show-third-party-inference")
-  Write-Host ""
-  $Apply = Read-Host "Apply detected local Claude Code gateway settings now? (Y/N)"
-  if ($Apply -match "^[Yy]") {
-    Run-Patcher @("--apply-third-party-inference")
-  } else {
-    Write-Host "Cancelled."
+  Run-Patcher @("--third-party-wizard")
+}
+
+function Offer-ThirdPartyWizard {
+  Run-Patcher @("--check-third-party-sources")
+  if ($script:PatchStatus -eq 0) {
+    Write-Host ""
+    Write-Host "You can keep the portable copy fresh, or import third-party model inference config." -ForegroundColor Yellow
+    $OpenWizard = Read-Host "Open third-party model inference config wizard now? (Y/N)"
+    if ($OpenWizard -match "^[Yy]") {
+      Run-Patcher @("--third-party-wizard")
+    } else {
+      Write-Host "Skipped config import. You can run option 8 later."
+    }
+  }
+}
+
+function Stop-ClaudeProcesses {
+  Get-Process Claude -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+  Get-Process claude -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+}
+
+function Launch-AfterPatch {
+  if ($script:PatchStatus -eq 0) {
+    Offer-ThirdPartyWizard
+    Start-PatchedClaude
   }
 }
 
@@ -70,6 +89,7 @@ function Update-PatchedClaude {
     Write-Host ""
     Write-Host "Already up to date. Nothing to do." -ForegroundColor Green
     Run-Patcher @("--apply-user-settings")
+    Offer-ThirdPartyWizard
     $Launch = Read-Host "Launch patched Claude now? (Y/N)"
     if ($Launch -match "^[Yy]") {
       Start-PatchedClaude
@@ -78,7 +98,10 @@ function Update-PatchedClaude {
   }
 
   if ($CheckStatus -ne 10) {
-    Write-Host "Version check failed." -ForegroundColor Red
+    Write-Host "Version check failed. Falling back to the locally installed Claude if available." -ForegroundColor Yellow
+    Stop-ClaudeProcesses
+    Run-Patcher @()
+    Launch-AfterPatch
     return
   }
 
@@ -89,15 +112,19 @@ function Update-PatchedClaude {
     return
   }
 
-  Get-Process Claude -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-  Get-Process claude -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-  Run-Patcher @("--force-download", "--launch")
+  Stop-ClaudeProcesses
+  Run-Patcher @("--force-download")
+  if ($script:PatchStatus -ne 0) {
+    Write-Host "Download/update failed. Falling back to the locally installed Claude if available." -ForegroundColor Yellow
+    Run-Patcher @()
+  }
+  Launch-AfterPatch
 }
 
 while ($true) {
   Write-Host ""
   Write-Host "========================================" -ForegroundColor Cyan
-  Write-Host " CC Desktop zh-CN Portable" -ForegroundColor Cyan
+  Write-Host " WIN CC Desktop zh-CN Portable" -ForegroundColor Cyan
   Write-Host "========================================" -ForegroundColor Cyan
   Write-Host "1. Patch / update / launch zh-CN Claude"
   Write-Host "2. Check latest version"
@@ -106,7 +133,7 @@ while ($true) {
   Write-Host "5. Launch patched Claude"
   Write-Host "6. Create Claude and Claude Code shortcuts"
   Write-Host "7. Full clean portable zh-CN tool files"
-  Write-Host "8. Apply local Claude Code gateway settings"
+  Write-Host "8. Third-party model inference config wizard"
   Write-Host "9. Apply Cowork compatibility fix"
   Write-Host "0. Exit"
   Write-Host ""
@@ -153,8 +180,7 @@ while ($true) {
     Write-Host ""
     $Confirm = Read-Host "Type DELETE to clean user config/account data"
     if ($Confirm -eq "DELETE") {
-      Get-Process Claude -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-      Get-Process claude -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+      Stop-ClaudeProcesses
       Run-Patcher @("--clean-user-data", "--yes")
     } else {
       Write-Host "Cancelled."
@@ -178,12 +204,11 @@ while ($true) {
 
   if ($Choice -eq "7") {
     Write-Host ""
-    Write-Host "This deletes patched app, download cache, backups, and shortcuts." -ForegroundColor Yellow
+    Write-Host "This deletes patched app, download cache, and shortcuts. Backups are kept." -ForegroundColor Yellow
     Write-Host "It does not delete Claude user config/account data." -ForegroundColor Yellow
     $Confirm = Read-Host "Type DELETE to full clean portable files"
     if ($Confirm -eq "DELETE") {
-      Get-Process Claude -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-      Get-Process claude -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+      Stop-ClaudeProcesses
       Run-Patcher @("--full-clean", "--yes")
     } else {
       Write-Host "Cancelled."
@@ -199,8 +224,7 @@ while ($true) {
   }
 
   if ($Choice -eq "9") {
-    Get-Process Claude -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-    Get-Process claude -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Stop-ClaudeProcesses
     Run-Patcher @("--apply-cowork-compat")
     Run-Patcher @("--create-shortcuts")
     Pause-Menu

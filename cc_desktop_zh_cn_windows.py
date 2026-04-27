@@ -519,7 +519,6 @@ def full_clean(target_dir: Path, yes: bool) -> int:
         ("patched app", target_dir.expanduser()),
         ("launcher", launcher_path()),
         ("download cache", tool_root() / "downloads"),
-        ("user data backups", tool_root() / "user-data-backups"),
         ("desktop shortcut", shortcut_paths()["desktop"]),
         ("start menu shortcut", shortcut_paths()["start_menu"]),
         ("desktop Claude Code shortcut", claude_code_shortcut_paths()["desktop Claude Code"]),
@@ -531,7 +530,7 @@ def full_clean(target_dir: Path, yes: bool) -> int:
         print_path_info(label, path)
 
     print()
-    print("This does not delete Claude user config/account data. Use --clean-user-data for that.")
+    print("This does not delete Claude user config/account data or user-data-backups. Use --clean-user-data for account data.")
     if not yes:
         answer = input("Type DELETE to continue: ").strip()
         if answer != "DELETE":
@@ -641,7 +640,7 @@ def backup_existing_target(target: Path, dry_run: bool) -> Path | None:
     if not target.exists():
         return None
     stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
-    backup = target.with_name(f"{target.name}.backup-before-zh-CN-{stamp}")
+    backup = unique_backup_path(target.with_name(f"{target.name}.backup-before-zh-CN-{stamp}"))
     if dry_run:
         print(f"[dry-run] Would move existing target {target} -> {backup}")
         return backup
@@ -749,17 +748,17 @@ def patch_hardcoded_frontend_strings(app_dir: Path) -> None:
         'banner:"Prompts, completions, and your data are never sent to Anthropic — telemetry covers crash and usage signals only."': 'banner:"提示词、补全内容和你的数据不会发送给 Anthropic；遥测只包含崩溃和使用情况信号。"',
         'banner:"Plugins and skills aren\'t set in this configuration. Mount plugin bundles to the folder below using your device-management tool and Cowork will load them at launch."': 'banner:"插件和技能不在此配置中直接设置。请用设备管理工具把插件包挂载到下面的文件夹，Cowork 会在启动时加载。"',
         'caption:"Drop plugin folders here. Read-only to the app."': 'caption:"将插件文件夹放在这里。应用内只读。"',
-        'description:"Hosts your network firewall must allow, derived from your current settings. This list is read-only and updates as you make changes. Traffic is HTTPS on port 443 unless a custom port is specified (OTLP, gateway, or MCP server URLs)."': 'description:"根据当前设置推导出的网络防火墙放行主机列表。此列表只读，并会随配置变化更新。除非 OTLP、网关或 MCP 服务器 URL 指定了自定义端口，否则流量使用 443 端口的 HTTPS。"',
+        'description:"Hosts your network firewall must allow, derived from your current settings. This list is read-only and updates as you make changes. Traffic is HTTPS on port 443 unless a custom port is specified (OTLP, gateway, or MCP server URLs)."': 'description:"根据当前设置推导出的网络防火墙放行主机列表。此列表只读，并会随配置变化更新。除非 OTLP、网关[gateway] 或 MCP[模型上下文协议] 服务器 URL 指定了自定义端口，否则流量使用 443 端口的 HTTPS。"',
         'group:"Updates"': 'group:"更新"',
         'group:"Identity & models"': 'group:"身份与模型"',
         'group:"Bootstrap config URL"': 'group:"引导配置 URL"',
         'group:"Extensions"': 'group:"扩展"',
-        'group:"MCP servers"': 'group:"MCP 服务器"',
+        'group:"MCP servers"': 'group:"MCP[模型上下文协议] 服务器"',
         'group:"Anthropic telemetry"': 'group:"Anthropic 遥测"',
         'title:"Allow desktop extensions"': 'title:"允许桌面扩展"',
         'title:"Show extension directory"': 'title:"显示扩展目录"',
         'title:"Require signed extensions"': 'title:"要求扩展签名"',
-        'title:"Allow user-added MCP servers"': 'title:"允许用户添加 MCP 服务器"',
+        'title:"Allow user-added MCP servers"': 'title:"允许用户添加 MCP[模型上下文协议] 服务器"',
         'title:"Allow Claude Code tab"': 'title:"允许 Claude Code 标签页"',
         'title:"Secure VM features"': 'title:"安全 VM 功能"',
         'title:"Require full VM sandbox"': 'title:"强制完整 VM 沙盒"',
@@ -784,7 +783,7 @@ def patch_hardcoded_frontend_strings(app_dir: Path) -> None:
         'title:"Vertex OAuth scopes"': 'title:"Vertex OAuth 权限范围"',
         'title:"Vertex AI base URL"': 'title:"Vertex AI 基础 URL"',
         'title:"AWS region"': 'title:"AWS 区域"',
-        'title:"AWS bearer token"': 'title:"AWS Bearer 令牌"',
+        'title:"AWS bearer token"': 'title:"AWS Bearer[令牌认证] 访问令牌"',
         'title:"Bedrock base URL"': 'title:"Bedrock 基础 URL"',
         'title:"AWS profile name"': 'title:"AWS 配置档名称"',
         'title:"AWS config directory"': 'title:"AWS 配置目录"',
@@ -795,7 +794,7 @@ def patch_hardcoded_frontend_strings(app_dir: Path) -> None:
         'title:"Block essential telemetry"': 'title:"阻止必要遥测"',
         'title:"Block nonessential telemetry"': 'title:"阻止非必要遥测"',
         'title:"Block nonessential services"': 'title:"阻止非必要服务"',
-        'title:"Managed MCP servers"': 'title:"托管 MCP 服务器"',
+        'title:"Managed MCP servers"': 'title:"托管 MCP[模型上下文协议] 服务器"',
         'title:"Disabled built-in tools"': 'title:"停用内置工具"',
         'title:"Allowed workspace folders"': 'title:"允许的工作区文件夹"',
         'title:"Credential helper script"': 'title:"凭据辅助脚本"',
@@ -810,9 +809,9 @@ def patch_hardcoded_frontend_strings(app_dir: Path) -> None:
         'description:"Permit users to install local desktop extensions (.dxt/.mcpb)."': 'description:"允许用户安装本地桌面扩展（.dxt/.mcpb）。"',
         'description:"Show the Anthropic extension directory in the connectors UI."': 'description:"在连接器界面中显示 Anthropic 扩展目录。"',
         'description:"Reject desktop extensions that are not signed by a trusted publisher."': 'description:"拒绝未由受信任发布者签名的桌面扩展。"',
-        'description:"Permit users to add their own local (stdio) MCP servers via Developer settings. HTTP/SSE servers are managed separately. When false, only servers from the Managed MCP servers list and org-provisioned plugins are available."': 'description:"允许用户通过开发者设置添加自己的本地（stdio）MCP 服务器。HTTP/SSE 服务器会单独管理。关闭时，只有“托管 MCP 服务器”列表和组织预置插件中的服务器可用。"',
+        'description:"Permit users to add their own local (stdio) MCP servers via Developer settings. HTTP/SSE servers are managed separately. When false, only servers from the Managed MCP servers list and org-provisioned plugins are available."': 'description:"允许用户通过开发者设置添加自己的本地（stdio）MCP[模型上下文协议] 服务器。HTTP/SSE 服务器会单独管理。关闭时，只有“托管 MCP[模型上下文协议] 服务器”列表和组织预置插件中的服务器可用。"',
         'description:"Show the Code tab (terminal-based coding sessions). Sessions run on the host, not inside the VM."': 'description:"显示 Code 标签页（基于终端的编码会话）。会话在主机上运行，而不是在 VM 内运行。"',
-        'description:"Forces the agent loop, file/web tools, and plugin-bundled MCPs to run inside the VM, disabling host-loop mode."': 'description:"强制代理循环、文件/网页工具和插件内置 MCP 在 VM 内运行，并停用主机循环模式。"',
+        'description:"Forces the agent loop, file/web tools, and plugin-bundled MCPs to run inside the VM, disabling host-loop mode."': 'description:"强制代理循环、文件/网页工具和插件内置 MCP[模型上下文协议] 在 VM 内运行，并停用主机循环模式。"',
         'description:"Base URL of an OpenTelemetry collector. When set, Cowork sessions export logs and metrics (prompts, tool calls, token counts) to this endpoint via OTLP. The endpoint host is automatically added to the session network allowlist."': 'description:"OpenTelemetry 收集器的基础 URL。设置后，Cowork 会话会通过 OTLP 将日志和指标（提示词、工具调用、词元[token]计数）导出到此端点。该端点主机会自动加入会话网络允许列表。"',
         'description:"OpenTelemetry 收集器的基础 URL。设置后，Cowork 会话会通过 OTLP 将日志和指标（提示词、工具调用、令牌计数）导出到此端点。该端点主机会自动加入会话网络允许列表。"': 'description:"OpenTelemetry 收集器的基础 URL。设置后，Cowork 会话会通过 OTLP 将日志和指标（提示词、工具调用、词元[token]计数）导出到此端点。该端点主机会自动加入会话网络允许列表。"',
         'description:"OTLP wire protocol used to reach the collector. Defaults to http/protobuf when otlpEndpoint is set."': 'description:"连接收集器所用的 OTLP 传输协议。设置 otlpEndpoint 时默认使用 http/protobuf。"',
@@ -823,13 +822,13 @@ def patch_hardcoded_frontend_strings(app_dir: Path) -> None:
         'description:"Restricts login to specific org UUID(s). Single UUID string or JSON array."': 'description:"将登录限制到指定组织 UUID。可填写单个 UUID 字符串或 JSON 数组。"',
         'description:"Full URL of the inference gateway endpoint."': 'description:"推理网关端点的完整 URL。"',
         'description:"Selects the inference backend. Setting this key activates third-party mode."': 'description:"选择推理后端。设置此项会启用第三方模式。"',
-        'description:"How to send the gateway credential. \'bearer\' (default) sends Authorization: Bearer. Set \'x-api-key\' only if your gateway requires the x-api-key header instead (e.g. api.anthropic.com). Set \'sso\' to obtain the credential via the gateway\'s own browser-based sign-in (RFC 8414 discovery at `<inferenceGatewayBaseUrl>/.well-known/oauth-authorization-server` + RFC 8628 device-code grant); inferenceGatewayApiKey and inferenceCredentialHelper are not required."': 'description:"网关凭据的发送方式。\'bearer\'（默认）会发送 Authorization: Bearer。只有当网关要求使用 x-api-key 请求头时才设置为 \'x-api-key\'（例如 api.anthropic.com）。设置为 \'sso\' 时，会通过网关自己的浏览器登录获取凭据（RFC 8414 发现 `<inferenceGatewayBaseUrl>/.well-known/oauth-authorization-server` + RFC 8628 设备码授权）；无需 inferenceGatewayApiKey 和 inferenceCredentialHelper。"',
+        'description:"How to send the gateway credential. \'bearer\' (default) sends Authorization: Bearer. Set \'x-api-key\' only if your gateway requires the x-api-key header instead (e.g. api.anthropic.com). Set \'sso\' to obtain the credential via the gateway\'s own browser-based sign-in (RFC 8414 discovery at `<inferenceGatewayBaseUrl>/.well-known/oauth-authorization-server` + RFC 8628 device-code grant); inferenceGatewayApiKey and inferenceCredentialHelper are not required."': 'description:"网关[gateway]凭据的发送方式。\'bearer\'（默认）会发送 Authorization: Bearer[令牌认证]。只有当网关[gateway]要求使用 x-api-key 请求头时才设置为 \'x-api-key\'（例如 api.anthropic.com）。设置为 \'sso\' 时，会通过网关[gateway]自己的浏览器登录获取凭据（RFC 8414 发现 `<inferenceGatewayBaseUrl>/.well-known/oauth-authorization-server` + RFC 8628 设备码授权）；无需 inferenceGatewayApiKey 和 inferenceCredentialHelper。"',
         'description:"Extra HTTP headers sent on every inference request. JSON array of \'Name: Value\' strings."': 'description:"每次推理请求都会发送的额外 HTTP 请求头。格式为由 \'Name: Value\' 字符串组成的 JSON 数组。"',
         'description:"GCP region for the Vertex AI endpoint."': 'description:"Vertex AI 端点所在的 GCP 区域。"',
         'description:"Absolute path to a service-account JSON or ADC file. No tilde or environment-variable expansion."': 'description:"服务账号 JSON 或 ADC 文件的绝对路径。不支持波浪号或环境变量展开。"',
-        'description:"Client ID of a Desktop-app OAuth client created in your GCP project (APIs & Services → Credentials). When set together with the client secret, the app runs Sign in with Google and stores the resulting refresh token encrypted; `inferenceVertexCredentialsFile` is not needed."': 'description:"在 GCP 项目中创建的桌面应用 OAuth 客户端 ID（APIs & Services → Credentials）。与客户端密钥一起设置后，应用会运行“使用 Google 登录”，并加密保存得到的刷新令牌；不再需要 `inferenceVertexCredentialsFile`。"',
-        'description:"Client secret for the Desktop-app OAuth client. Not confidential for installed apps per Google\'s docs — PKCE protects the flow."': 'description:"桌面应用 OAuth 客户端密钥。根据 Google 文档，已安装应用中的该密钥并非机密；PKCE 会保护登录流程。"',
-        'description:"Space-separated OAuth scopes for the Google sign-in flow. Defaults to `openid email https://www.googleapis.com/auth/cloud-platform`. Narrow this if your Workspace\'s Context-Aware Access or reauth policy restricts `cloud-platform`."': 'description:"Google 登录流程使用的 OAuth 权限范围，用空格分隔。默认是 `openid email https://www.googleapis.com/auth/cloud-platform`。如果你的 Workspace 上下文感知访问或重新认证策略限制了 `cloud-platform`，请收窄此范围。"',
+        'description:"Client ID of a Desktop-app OAuth client created in your GCP project (APIs & Services → Credentials). When set together with the client secret, the app runs Sign in with Google and stores the resulting refresh token encrypted; `inferenceVertexCredentialsFile` is not needed."': 'description:"在 GCP 项目中创建的桌面应用 OAuth[开放授权] 客户端 ID（APIs & Services → Credentials）。与客户端密钥一起设置后，应用会运行“使用 Google 登录”，并加密保存得到的刷新令牌；不再需要 `inferenceVertexCredentialsFile`。"',
+        'description:"Client secret for the Desktop-app OAuth client. Not confidential for installed apps per Google\'s docs — PKCE protects the flow."': 'description:"桌面应用 OAuth[开放授权] 客户端密钥。根据 Google 文档，已安装应用中的该密钥并非机密；PKCE 会保护登录流程。"',
+        'description:"Space-separated OAuth scopes for the Google sign-in flow. Defaults to `openid email https://www.googleapis.com/auth/cloud-platform`. Narrow this if your Workspace\'s Context-Aware Access or reauth policy restricts `cloud-platform`."': 'description:"Google 登录流程使用的 OAuth[开放授权] 权限范围，用空格分隔。默认是 `openid email https://www.googleapis.com/auth/cloud-platform`。如果你的 Workspace 上下文感知访问或重新认证策略限制了 `cloud-platform`，请收窄此范围。"',
         'description:"Override the Vertex inference endpoint (e.g. a Private Service Connect address). Leave unset to use the public regional endpoint."': 'description:"覆盖 Vertex 推理端点（例如 Private Service Connect 地址）。留空则使用公开区域端点。"',
         'description:"AWS region for the Bedrock runtime endpoint."': 'description:"Bedrock 运行时端点所在的 AWS 区域。"',
         'description:"Override the Bedrock inference endpoint (e.g. a VPC interface endpoint or LLM gateway). Leave unset to use the public regional endpoint."': 'description:"覆盖 Bedrock 推理端点（例如 VPC 接口端点或 LLM 网关）。留空则使用公开区域端点。"',
@@ -878,21 +877,21 @@ def patch_hardcoded_frontend_strings(app_dir: Path) -> None:
         'suffix:"hours"': 'suffix:"小时"',
         'suffix:"tokens"': 'suffix:"词元[token]"',
         'suffix:"令牌"': 'suffix:"词元[token]"',
-        'hint:"Bearer (default) sends Authorization: Bearer. x-api-key is for the Anthropic API directly — auto-selected when the URL is *.anthropic.com."': 'hint:"Bearer（默认）会发送 Authorization: Bearer。x-api-key 用于直连 Anthropic API；当 URL 为 *.anthropic.com 时会自动选择。"',
+        'hint:"Bearer (default) sends Authorization: Bearer. x-api-key is for the Anthropic API directly — auto-selected when the URL is *.anthropic.com."': 'hint:"Bearer[令牌认证]（默认）会发送 Authorization: Bearer。x-api-key 用于直连 Anthropic API；当 URL 为 *.anthropic.com 时会自动选择。"',
         'hint:"Extra headers sent to the gateway, one \'Name: Value\' per entry. For tenant routing, org IDs, etc."': 'hint:"发送到网关的额外请求头，每项一个 \'Name: Value\'。可用于租户路由、组织 ID 等。"',
         'hint:"First entry is the picker default. Aliases like sonnet, opus accepted. Optional for gateway — when set, the picker shows exactly this list instead of /v1/models discovery. Turn on 1M context only for models your provider actually serves with the extended window."': 'hint:"第一项是选择器默认模型。支持 sonnet、opus 等别名。网关可不填；填写后，模型选择器会严格显示此列表，而不是通过 /v1/models 发现。只有在提供方实际支持扩展上下文窗口时，才开启 1M 上下文。"',
         'hint:"Tags telemetry events with your org so support can find them. Not used for auth."': 'hint:"给遥测事件打上组织标记，方便支持人员定位；不用于认证。"',
         'hint:"Go straight to this provider at launch — users won\'t see the option to sign in to Anthropic instead."': 'hint:"启动时直接进入此提供方；用户不会再看到改用 Anthropic 登录的选项。"',
         'hint:"GCP region where your Vertex AI Claude models are deployed."': 'hint:"部署 Vertex AI Claude 模型的 GCP 区域。"',
         'hint:"Absolute path to service-account JSON. Leave blank to fall back to ADC."': 'hint:"服务账号 JSON 的绝对路径。留空则回退到 ADC。"',
-        'hint:"Desktop-app OAuth client ID — enables Sign in with Google instead of a credentials file."': 'hint:"桌面应用 OAuth 客户端 ID；用于通过 Google 登录代替凭据文件。"',
-        'hint:"Secret for the Desktop-app OAuth client above."': 'hint:"上方桌面应用 OAuth 客户端的密钥。"',
-        'hint:"Override the Google OAuth scopes (space-separated). Leave blank for the default."': 'hint:"覆盖 Google OAuth 权限范围，用空格分隔。留空则使用默认值。"',
+        'hint:"Desktop-app OAuth client ID — enables Sign in with Google instead of a credentials file."': 'hint:"桌面应用 OAuth[开放授权] 客户端 ID；用于通过 Google 登录代替凭据文件。"',
+        'hint:"Secret for the Desktop-app OAuth client above."': 'hint:"上方桌面应用 OAuth[开放授权] 客户端的密钥。"',
+        'hint:"Override the Google OAuth scopes (space-separated). Leave blank for the default."': 'hint:"覆盖 Google OAuth[开放授权] 权限范围，用空格分隔。留空则使用默认值。"',
         'hint:"PSC endpoint, if using one."': 'hint:"如使用 PSC，请填写其端点。"',
         'hint:"Overrides profile when both are set."': 'hint:"同时设置时会覆盖配置档。"',
         'hint:"For VPC endpoints or gateway proxies."': 'hint:"用于 VPC 端点或网关代理。"',
-        'hint:"Ignored if a bearer token is set."': 'hint:"如果已设置 Bearer 令牌，则忽略此项。"',
-        'hint:"Folder with AWS config/credentials. Defaults to ~/.aws when no bearer token is set."': 'hint:"包含 AWS config/credentials 的文件夹。未设置 Bearer 令牌时默认使用 ~/.aws。"',
+        'hint:"Ignored if a bearer token is set."': 'hint:"如果已设置 Bearer[令牌认证] 访问令牌，则忽略此项。"',
+        'hint:"Folder with AWS config/credentials. Defaults to ~/.aws when no bearer token is set."': 'hint:"包含 AWS config/credentials 的文件夹。未设置 Bearer[令牌认证] 访问令牌时默认使用 ~/.aws。"',
         'hint:"Absolute path to an executable that prints the credential."': 'hint:"可执行文件的绝对路径，该程序应输出凭据。"',
         'hint:"Runs tools inside an isolated VM instead of the host. Stronger isolation; slower file access and no host-process tools."': 'hint:"在隔离 VM 内运行工具，而不是在主机上运行。隔离更强，但文件访问更慢，且不能使用主机进程工具。"',
         'hint:"Domains Cowork\'s tools may reach during a turn. Also surfaced under Egress Requirements."': 'hint:"Cowork 工具在一次回合中允许访问的域名，也会显示在“出站网络要求”中。"',
@@ -901,7 +900,7 @@ def patch_hardcoded_frontend_strings(app_dir: Path) -> None:
         'hint:".dxt and .mcpb installs."': 'hint:".dxt 和 .mcpb 安装。"',
         'hint:"The in-app catalogue of installable extensions. Hide to allow sideload only."': 'hint:"应用内可安装扩展目录。隐藏后只允许侧载。"',
         'hint:"Local stdio servers added via the Developer settings. Remote servers come from the managed list above, or plugins mounted to a user\'s computer by an organization admin."': 'hint:"通过开发者设置添加的本地 stdio 服务器。远程服务器来自上方托管列表，或由组织管理员挂载到用户电脑上的插件。"',
-        'hint:"Org-pushed remote MCP servers. May embed bearer tokens."': 'hint:"组织下发的远程 MCP 服务器。可能包含 Bearer 令牌。"',
+        'hint:"Org-pushed remote MCP servers. May embed bearer tokens."': 'hint:"组织下发的远程 MCP[模型上下文协议] 服务器。可能包含 Bearer[令牌认证] 访问令牌。"',
         'hint:"Crash and performance reports to Anthropic."': 'hint:"发送给 Anthropic 的崩溃和性能报告。"',
         'hint:"Product-usage analytics and diagnostic-report uploads. No message content."': 'hint:"产品使用分析和诊断报告上传，不包含消息内容。"',
         'hint:"Favicon fetch and the artifact-preview iframe origin. Artifacts will not render."': 'hint:"网站图标获取和 Artifact 预览 iframe 源。禁用后 Artifact 不会渲染。"',
@@ -910,7 +909,7 @@ def patch_hardcoded_frontend_strings(app_dir: Path) -> None:
         'label:"Name"': 'label:"名称"',
         'label:"URL"': 'label:"URL"',
         'label:"Transport"': 'label:"传输方式"',
-        'label:"OAuth"': 'label:"OAuth"',
+        'label:"OAuth"': 'label:"OAuth[开放授权]"',
         'label:"Headers"': 'label:"请求头"',
         'label:"Headers helper script"': 'label:"请求头辅助脚本"',
         'label:"Helper cache TTL (sec)"': 'label:"辅助缓存时间（秒）"',
@@ -1042,9 +1041,19 @@ def developer_settings_paths() -> list[Path]:
 def backup_file(path: Path, reason: str) -> Path:
     stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     suffix = f"{path.suffix}.bak-{reason}-{stamp}" if path.suffix else f".bak-{reason}-{stamp}"
-    backup = path.with_suffix(suffix)
+    backup = unique_backup_path(path.with_suffix(suffix))
     shutil.copy2(path, backup)
     return backup
+
+
+def unique_backup_path(path: Path) -> Path:
+    if not path.exists():
+        return path
+    for index in range(1, 1000):
+        candidate = path.with_name(f"{path.name}-{index}")
+        if not candidate.exists():
+            return candidate
+    raise SystemExit(f"Could not create a unique backup path near: {path}")
 
 
 def load_json_dict(path: Path, *, backup_invalid: bool = False, label: str = "JSON") -> dict[str, Any]:
@@ -1087,6 +1096,83 @@ def infer_gateway_auth_scheme(base_url: str, credential_name: str) -> str:
     if credential_name == "ANTHROPIC_API_KEY" and host.endswith("anthropic.com"):
         return "x-api-key"
     return "bearer"
+
+
+def third_party_config_entries(data_dir: Path) -> list[dict[str, Any]]:
+    library = third_party_config_library_dir(data_dir)
+    meta_path = third_party_config_meta_path(data_dir)
+    if not library.exists():
+        return []
+
+    meta = load_json_dict(meta_path, label="Claude third-party config metadata")
+    candidate_paths: list[Path] = []
+    applied_id = nonempty_string(meta.get("appliedId"))
+    if applied_id:
+        candidate_paths.append(third_party_config_path(applied_id, data_dir))
+
+    entries = meta.get("entries")
+    names_by_id: dict[str, str] = {}
+    if isinstance(entries, list):
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            entry_id = nonempty_string(entry.get("id"))
+            if not entry_id:
+                continue
+            names_by_id[entry_id] = nonempty_string(entry.get("name")) or entry_id
+            entry_path = third_party_config_path(entry_id, data_dir)
+            if entry_path not in candidate_paths:
+                candidate_paths.append(entry_path)
+
+    for config_path in sorted(library.glob("*.json")):
+        if config_path.name == "_meta.json" or config_path in candidate_paths:
+            continue
+        candidate_paths.append(config_path)
+
+    valid: list[dict[str, Any]] = []
+    for config_path in candidate_paths:
+        data = load_json_dict(config_path, label="Claude third-party config")
+        base_url = nonempty_string(data.get("inferenceGatewayBaseUrl"))
+        credential = nonempty_string(data.get("inferenceGatewayApiKey"))
+        if not base_url or not credential:
+            continue
+        try:
+            parsed = urllib.parse.urlparse(base_url)
+        except ValueError:
+            continue
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            continue
+
+        config_id = config_path.stem
+        valid.append(
+            {
+                "data_dir": data_dir,
+                "library": library,
+                "path": config_path,
+                "id": config_id,
+                "name": names_by_id.get(config_id, config_id),
+                "base_url": base_url,
+                "auth_scheme": nonempty_string(data.get("inferenceGatewayAuthScheme")) or "bearer",
+                "disable_chooser": data.get("disableDeploymentModeChooser"),
+            }
+        )
+    return valid
+
+
+def discover_desktop_third_party_sources() -> tuple[list[dict[str, Any]], list[str]]:
+    sources: list[dict[str, Any]] = []
+    messages: list[str] = []
+    for data_dir in third_party_data_paths():
+        library = third_party_config_library_dir(data_dir)
+        if not library.exists():
+            messages.append(f"Desktop config library not found: {library}")
+            continue
+        entries = third_party_config_entries(data_dir)
+        if entries:
+            sources.append({"data_dir": data_dir, "library": library, "entries": entries})
+        else:
+            messages.append(f"No valid gateway config found in Desktop config library: {library}")
+    return sources, messages
 
 
 def discover_local_claude_gateway_config() -> tuple[dict[str, Any] | None, list[str]]:
@@ -1169,6 +1255,18 @@ def discover_local_claude_gateway_config() -> tuple[dict[str, Any] | None, list[
     )
 
 
+def backup_third_party_library(data_dir: Path, reason: str) -> Path | None:
+    library = third_party_config_library_dir(data_dir)
+    if not library.exists():
+        return None
+    stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup_root = tool_root() / "user-data-backups"
+    backup_root.mkdir(parents=True, exist_ok=True)
+    backup = unique_backup_path(backup_root / f"third-party-config-{reason}-{stamp}")
+    shutil.copytree(library, backup)
+    return backup
+
+
 def third_party_write_targets() -> list[Path]:
     paths = third_party_data_paths()
     existing = [path for path in paths if path.exists() or third_party_config_library_dir(path).exists()]
@@ -1223,54 +1321,126 @@ def ensure_third_party_config_meta(data_dir: Path, dry_run: bool) -> tuple[str, 
     return applied_id, third_party_config_path(applied_id, data_dir)
 
 
+def set_disable_deployment_mode_chooser(data_dir: Path, dry_run: bool) -> None:
+    for entry in third_party_config_entries(data_dir):
+        config_path = entry["path"]
+        current = load_json_dict(config_path, backup_invalid=True, label="Claude third-party config")
+        if current.get("disableDeploymentModeChooser") is True:
+            continue
+        updated = dict(current)
+        updated["disableDeploymentModeChooser"] = True
+        if dry_run:
+            print(f"[dry-run] Would enable skip login-mode chooser: {config_path}")
+            continue
+        if config_path.exists():
+            backup = backup_file(config_path, "before-skip-login-mode-chooser")
+            print(f"Backed up Claude third-party config: {backup}")
+        save_json(config_path, updated)
+        print(f"Enabled skip login-mode chooser: {config_path}")
+
+
+def sync_desktop_third_party_library(source_data_dir: Path, target_data_dir: Path, dry_run: bool = False) -> int:
+    source_library = third_party_config_library_dir(source_data_dir)
+    target_library = third_party_config_library_dir(target_data_dir)
+    if not source_library.exists():
+        print(f"未找到来源 Desktop 配置库[configLibrary]: {source_library}")
+        return 1
+
+    if source_data_dir.resolve() == target_data_dir.resolve():
+        print(f"来源和目标配置库[configLibrary]相同: {source_library}")
+        set_disable_deployment_mode_chooser(target_data_dir, dry_run)
+        return 0
+
+    json_files = sorted(source_library.glob("*.json"))
+    if not json_files:
+        print(f"配置库中没有找到 JSON 配置文件: {source_library}")
+        return 1
+
+    print(f"来源配置库[configLibrary]: {source_library}")
+    print(f"目标配置库[configLibrary]: {target_library}")
+    if dry_run:
+        print(f"[dry-run] 将同步 {len(json_files)} 个配置文件。")
+        return 0
+
+    backup = backup_third_party_library(target_data_dir, "before-sync")
+    if backup:
+        print(f"已备份目标配置库[configLibrary]: {backup}")
+
+    target_library.mkdir(parents=True, exist_ok=True)
+    for source in json_files:
+        target = target_library / source.name
+        shutil.copy2(source, target)
+        print(f"已同步配置文件: {target.name}")
+
+    set_disable_deployment_mode_chooser(target_data_dir, dry_run)
+    return 0
+
+
 def apply_third_party_inference_config(dry_run: bool = False) -> int:
     discovered, messages = discover_local_claude_gateway_config()
     if not discovered:
-        print("No local Claude Code gateway config was applied.")
+        print("没有应用 Claude Code gateway[网关] 配置。")
         for message in messages:
             print(f"  {message}")
-        print("Open Developer -> Configure Third-Party Inference and fill it manually, or add env values to ~/.claude/settings.json.")
+        print("可以在 Developer -> Configure Third-Party Inference[第三方大模型推理] 中手动填写，或把环境变量加入 ~/.claude/settings.json。")
         return 0
 
-    print("Detected local Claude Code gateway config:")
+    print("检测到 Claude Code gateway[网关] 配置:")
     print(f"  Base URL: {discovered['base_url']}")
-    print(f"  Credential: {discovered['credential_name']} = {mask_secret(discovered['credential'])}")
-    print(f"  Auth scheme: {discovered['auth_scheme']}")
+    print(f"  凭据: {discovered['credential_name']} = {mask_secret(discovered['credential'])}")
+    print(f"  认证方式: {discovered['auth_scheme']}")
 
-    for data_dir in third_party_write_targets():
-        config_id, config_path = ensure_third_party_config_meta(data_dir, dry_run)
-        current = load_json_dict(config_path, backup_invalid=True, label="Claude third-party config")
-        updated = dict(current)
-        updated.update(
-            {
-                "inferenceProvider": "gateway",
-                "inferenceGatewayBaseUrl": discovered["base_url"],
-                "inferenceGatewayApiKey": discovered["credential"],
-                "inferenceGatewayAuthScheme": discovered["auth_scheme"],
-                "disableDeploymentModeChooser": True,
-            }
-        )
+    data_dir = primary_third_party_data_dir()
+    config_id, config_path = ensure_third_party_config_meta(data_dir, dry_run)
+    current = load_json_dict(config_path, backup_invalid=True, label="Claude third-party config")
+    updated = dict(current)
+    updated.update(
+        {
+            "inferenceProvider": "gateway",
+            "inferenceGatewayBaseUrl": discovered["base_url"],
+            "inferenceGatewayApiKey": discovered["credential"],
+            "inferenceGatewayAuthScheme": discovered["auth_scheme"],
+            "disableDeploymentModeChooser": True,
+        }
+    )
 
-        if updated == current:
-            print(f"Claude third-party inference is already configured: {config_path}")
-            continue
+    if updated == current:
+        print(f"Claude 第三方大模型推理配置已是最新: {config_path}")
+        return 0
 
-        if dry_run:
-            print(f"[dry-run] Would apply Claude third-party inference config: {config_path}")
-            continue
+    if dry_run:
+        print(f"[dry-run] 将应用 Claude 第三方大模型推理配置: {config_path}")
+        return 0
 
-        if config_path.exists():
-            backup = backup_file(config_path, "before-third-party-config")
-            print(f"Backed up Claude third-party config: {backup}")
-        save_json(config_path, updated)
-        print(f"Applied Claude third-party inference config: {config_path} (id: {config_id})")
+    if config_path.exists():
+        backup = backup_file(config_path, "before-third-party-config")
+        print(f"已备份 Claude 第三方大模型推理配置: {backup}")
+    save_json(config_path, updated)
+    print(f"已应用 Claude 第三方大模型推理配置: {config_path} (id: {config_id})")
 
     return 0
 
 
 def show_third_party_inference_config() -> int:
+    desktop_sources, desktop_messages = discover_desktop_third_party_sources()
+    print("Claude Desktop 第三方大模型推理配置库[configLibrary]:")
+    if desktop_sources:
+        for index, source in enumerate(desktop_sources, start=1):
+            print(f"  [{index}] {source['library']}")
+            for entry in source["entries"]:
+                print(
+                    f"      - {entry['name']} ({entry['id']}): "
+                    f"{entry['base_url']} / auth={entry['auth_scheme']} / "
+                    f"skipLoginChooser={entry['disable_chooser']}"
+                )
+    else:
+        print("  Not found.")
+        for message in desktop_messages:
+            print(f"  {message}")
+
+    print()
     discovered, messages = discover_local_claude_gateway_config()
-    print("Local Claude Code gateway discovery:")
+    print("Claude Code gateway[网关] 配置检测:")
     if discovered:
         print(f"  Base URL: {discovered['base_url']}")
         print(f"  Credential: {discovered['credential_name']} = {mask_secret(discovered['credential'])}")
@@ -1281,7 +1451,7 @@ def show_third_party_inference_config() -> int:
             print(f"  {message}")
 
     print()
-    print("Claude Desktop third-party inference config:")
+    print("Claude Desktop 第三方大模型推理配置:")
     for data_dir in third_party_data_paths():
         meta_path = third_party_config_meta_path(data_dir)
         print_path_info("third-party metadata", meta_path)
@@ -1299,6 +1469,118 @@ def show_third_party_inference_config() -> int:
             print(f"  inferenceGatewayAuthScheme: {config.get('inferenceGatewayAuthScheme') or 'not set'}")
             print(f"  disableDeploymentModeChooser: {config.get('disableDeploymentModeChooser')}")
     return 0
+
+
+def check_third_party_sources() -> int:
+    desktop_sources, _ = discover_desktop_third_party_sources()
+    code_config, _ = discover_local_claude_gateway_config()
+    if desktop_sources or code_config:
+        print("检测到可复用的第三方大模型推理配置。")
+        if desktop_sources:
+            print(f"  Desktop 配置库[configLibrary]: {len(desktop_sources)}")
+        if code_config:
+            print(f"  Claude Code gateway[网关]: {code_config['base_url']}")
+        return 0
+    print("未检测到可复用的第三方大模型推理配置。")
+    return 10
+
+
+def prompt_line(prompt: str) -> str | None:
+    try:
+        return input(prompt).replace("\x00", "").strip()
+    except EOFError:
+        print()
+        print("No input was provided; cancelled.")
+        return None
+
+
+def choose_desktop_third_party_source(sources: list[dict[str, Any]]) -> Path | None:
+    if not sources:
+        print("没有可同步的 Claude Desktop 第三方大模型推理配置。")
+        return None
+    if len(sources) == 1:
+        return sources[0]["data_dir"]
+
+    print()
+    print("请选择要同步的 Desktop 配置库[configLibrary]:")
+    for index, source in enumerate(sources, start=1):
+        entries = ", ".join(entry["name"] for entry in source["entries"])
+        print(f"  {index}. {source['library']} ({entries})")
+    answer = prompt_line("输入来源编号，或输入 0 取消: ")
+    if answer is None:
+        return None
+    if answer == "0":
+        return None
+    try:
+        choice = int(answer)
+    except ValueError:
+        print("无效选择。")
+        return None
+    if choice < 1 or choice > len(sources):
+        print("无效选择。")
+        return None
+    return sources[choice - 1]["data_dir"]
+
+
+def third_party_config_wizard() -> int:
+    print("第三方大模型推理配置向导")
+    print("你可以保持绿色版全新，也可以同步 Claude Desktop 配置库[configLibrary]，或从 Claude Code 生成配置。")
+    print("访问令牌[token]、API key 等敏感值会在输出中打码。")
+    print()
+    show_third_party_inference_config()
+
+    while True:
+        print()
+        print("1. 保持全新，不导入也不修改第三方大模型推理配置")
+        print("2. 同步现有 Claude Desktop 配置库[configLibrary] 到绿色版")
+        print("3. 从 Claude Code 配置生成 Desktop gateway[网关] 配置")
+        print("4. 重新显示检测到的配置")
+        print("0. 返回")
+        choice = prompt_line("请选择: ")
+        if choice is None:
+            return 0
+
+        if choice == "0":
+            return 0
+        if choice == "1":
+            print("已保持全新。没有导入第三方大模型推理配置。")
+            return 0
+        if choice == "2":
+            sources, _ = discover_desktop_third_party_sources()
+            source_data_dir = choose_desktop_third_party_source(sources)
+            if not source_data_dir:
+                continue
+            target_data_dir = primary_third_party_data_dir()
+            print()
+            print("这会复制配置库[configLibrary] JSON 文件，并启用跳过登录模式选择。")
+            print(f"Source: {third_party_config_library_dir(source_data_dir)}")
+            print(f"Target: {third_party_config_library_dir(target_data_dir)}")
+            answer = prompt_line("输入 SYNC 继续: ")
+            if answer != "SYNC":
+                print("已取消。")
+                continue
+            return sync_desktop_third_party_library(source_data_dir, target_data_dir, False)
+        if choice == "3":
+            discovered, messages = discover_local_claude_gateway_config()
+            if not discovered:
+                print("没有可转换的 Claude Code gateway[网关] 配置。")
+                for message in messages:
+                    print(f"  {message}")
+                continue
+            print()
+            print("这会把 gateway[网关] 字段写入 Desktop 配置库[configLibrary]，并启用跳过登录模式选择。")
+            print(f"Base URL: {discovered['base_url']}")
+            print(f"Credential: {discovered['credential_name']} = {mask_secret(discovered['credential'])}")
+            answer = prompt_line("输入 APPLY 继续: ")
+            if answer != "APPLY":
+                print("已取消。")
+                continue
+            return apply_third_party_inference_config(False)
+        if choice == "4":
+            print()
+            show_third_party_inference_config()
+            continue
+        print("未知选项。")
 
 
 def asar_file_entries(header: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
@@ -1706,7 +1988,6 @@ def enable_developer_mode(dry_run: bool) -> None:
 def apply_user_settings(target_dir: Path) -> int:
     set_user_locale(False)
     enable_developer_mode(False)
-    apply_third_party_inference_config(False)
     apply_locale_resources(target_dir, False)
     patch_cowork_portable_detection(target_dir, False)
     try:
@@ -1818,8 +2099,10 @@ def main() -> int:
     parser.add_argument("--force-download", action="store_true", help="Always download the latest official Windows MSIX before patching")
     parser.add_argument("--check-update", action="store_true", help="Check whether the patched copy is already current")
     parser.add_argument("--show-user-data", action="store_true", help="Show Claude user config/account data paths")
-    parser.add_argument("--show-third-party-inference", action="store_true", help="Show local Claude Code and Desktop third-party inference config")
-    parser.add_argument("--apply-third-party-inference", action="store_true", help="Apply local Claude Code gateway settings to Claude Desktop third-party inference")
+    parser.add_argument("--show-third-party-inference", action="store_true", help="Show Claude Desktop and Claude Code third-party model inference config")
+    parser.add_argument("--check-third-party-sources", action="store_true", help="Check whether reusable third-party model inference config exists")
+    parser.add_argument("--third-party-wizard", action="store_true", help="Open the third-party model inference config wizard")
+    parser.add_argument("--apply-third-party-inference", action="store_true", help="Generate Desktop gateway config from Claude Code settings")
     parser.add_argument("--apply-cowork-compat", action="store_true", help="Patch portable Claude so Cowork does not require the MSIX launch path")
     parser.add_argument("--patch-desktop-menu", action="store_true", help="Patch hardcoded desktop menu strings into zh-CN")
     parser.add_argument("--apply-locale", action="store_true", help="Apply zh-CN locale resources to the patched copy without reinstalling")
@@ -1839,6 +2122,10 @@ def main() -> int:
         return show_user_data(args.target_dir)
     if args.show_third_party_inference:
         return show_third_party_inference_config()
+    if args.check_third_party_sources:
+        return check_third_party_sources()
+    if args.third_party_wizard:
+        return third_party_config_wizard()
     if args.apply_third_party_inference:
         return apply_third_party_inference_config(False)
     if args.apply_cowork_compat:
@@ -1864,7 +2151,6 @@ def main() -> int:
     patch_cowork_portable_detection(app_dir, args.dry_run)
     set_user_locale(args.dry_run)
     enable_developer_mode(args.dry_run)
-    apply_third_party_inference_config(args.dry_run)
     verify(app_dir)
     create_shortcuts(app_dir)
 

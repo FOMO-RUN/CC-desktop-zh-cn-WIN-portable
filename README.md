@@ -15,7 +15,7 @@
 - 配置选择权：第三方大模型推理配置向导可以保持全新，也可以同步 Claude Desktop 或 Claude Code 的已有配置。
 - 可跳过登录模式选择：导入或生成配置后，工具会启用 `disableDeploymentModeChooser`，直接进入第三方大模型推理模式。
 - 原版共存：开始菜单里的原版 Claude 仍然是英文官方版，`Claude zh-CN` 快捷方式启动的是中文绿色版。
-- Code[代码] / Cowork[协作] 兼容：修复绿色版路径下 Code[代码] / Cowork[协作] 对 MSIX 安装路径的检测。
+- Code[代码] / Cowork[协作] 共存：修复绿色版路径检测，并隔离 Cowork VM 的管道、网络和存储命名空间，降低与官方 MSIX 版同时运行时的冲突。
 - 快捷方式自动创建：首次汉化或更新后自动创建 `Claude zh-CN` 和 `Claude Code` 的桌面 / 开始菜单快捷方式。
 - 更新友好：版本相同则跳过下载；官方下载接口异常时会回退到本机已安装 Claude。
 
@@ -29,7 +29,7 @@ flowchart TD
     B --> C["注入 zh-CN 语言白名单"]
     C --> D["合并 frontend / desktop / statsig 中文资源"]
     D --> E["补丁硬编码文案和桌面菜单"]
-    E --> F["修复 Code[代码] / Cowork[协作] 绿色版检测"]
+    E --> F["修复 Code[代码] / Cowork[协作] 绿色版检测与 VM 命名空间"]
     F --> G["创建 Claude zh-CN 快捷方式"]
     F --> H["创建 Claude Code 快捷方式"]
     A -.-> I["原版 Claude Desktop 继续保留，不修改官方安装"]
@@ -148,6 +148,7 @@ cd C:\Users\TC\Downloads\claude-desktop-zh-cn-main
 7. 完全清理绿色版文件
 8. 第三方大模型推理配置向导
 9. 应用 Cowork 兼容修复
+10. 修复官方 Claude MSIX Cowork 沙箱（高级）
 0. 退出
 ```
 
@@ -227,14 +228,29 @@ Cowork requires Claude Desktop be installed with our modern installer
 
 选项 `9` 会把该检测改为读取绿色版专用环境变量，并同步更新 ASAR 完整性信息与 `Claude.exe` 中记录的 ASAR hash。
 
+为了让官方 MSIX 版和中文绿色版可以同时运行，工具还会把绿色版的 Cowork VM 命名空间改成独立名称：
+
+```text
+cowork-vm-service -> ccdesk-vm-service
+cowork-vm-nat     -> ccdesk-vm-nat
+cowork-vm-store   -> ccdesk-vm-store
+```
+
+这会同时处理 `app.asar` 和 `resources\cowork-svc.exe`，并重建启动器。启动 `Claude zh-CN` 快捷方式时，启动器会先启动绿色版自己的 `cowork-svc.exe`，等待 `\\.\pipe\ccdesk-vm-service` 就绪后再打开 Claude。
+
 修复时会备份：
 
 ```text
 %LOCALAPPDATA%\ClaudeZhCN\Claude\resources\app.asar.bak-before-cowork-compat-*
+%LOCALAPPDATA%\ClaudeZhCN\Claude\resources\app.asar.bak-before-cowork-namespace-*
+%LOCALAPPDATA%\ClaudeZhCN\Claude\resources\cowork-svc.exe.bak-before-cowork-namespace-*
 %LOCALAPPDATA%\ClaudeZhCN\Claude\Claude.exe.bak-before-cowork-compat-*
+%LOCALAPPDATA%\ClaudeZhCN\Claude\Claude.exe.bak-before-cowork-namespace-*
 ```
 
 请通过桌面或开始菜单中的 `Claude zh-CN` 快捷方式启动。不要直接双击绿色副本里的 `Claude.exe`，否则可能绕过启动器环境变量。
+
+菜单 `10` 是高级修复项，只用于官方 MSIX 版在使用绿色版后出现 Cowork 启动失败的情况。它会尝试启动官方 `CoworkVMService`，并把绿色版生成的 `smol-bin.vhdx` 同步到官方 MSIX 沙箱目录。默认汉化 / 更新流程不会自动触碰官方版沙箱数据。
 
 ## 清理
 
@@ -278,7 +294,7 @@ Cowork requires Claude Desktop be installed with our modern installer
 
 本项目的中文资源整理与补丁思路参考了 [javaht/claude-desktop-zh-cn](https://github.com/javaht/claude-desktop-zh-cn)。感谢原项目作者和贡献者对 Claude Desktop 中文化实践的探索与分享。
 
-感谢 [@chrichuang218](https://github.com/chrichuang218) 的 fork 对翻译修正、第三方配置复用和下载回退思路提供的改进参考。本项目已在保留用户选择权和配置备份的前提下吸收相关优点。
+感谢 [@chrichuang218](https://github.com/chrichuang218) 的 fork 和 PR 对翻译修正、第三方配置复用、下载回退以及 Cowork 共存修复思路提供的改进参考。本项目已在保留用户选择权和配置备份的前提下吸收相关优点。
 
 本项目在此基础上面向 Windows 绿色版 / 便携化使用场景做了独立实现与扩展。
 

@@ -72,6 +72,12 @@ function Offer-ThirdPartyWizard {
 function Stop-ClaudeProcesses {
   Get-Process Claude -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
   Get-Process claude -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+  $PortableCoworkSvc = Join-Path $env:LOCALAPPDATA "ClaudeZhCN\Claude\resources\cowork-svc.exe"
+  if (Test-Path $PortableCoworkSvc) {
+    Get-CimInstance Win32_Process -Filter "Name = 'cowork-svc.exe'" -ErrorAction SilentlyContinue |
+      Where-Object { $_.ExecutablePath -eq $PortableCoworkSvc } |
+      ForEach-Object { Invoke-CimMethod -InputObject $_ -MethodName Terminate -ErrorAction SilentlyContinue | Out-Null }
+  }
 }
 
 function Launch-AfterPatch {
@@ -135,6 +141,7 @@ while ($true) {
   Write-Host "7. 完全清理绿色版文件"
   Write-Host "8. 第三方大模型推理配置向导"
   Write-Host "9. 应用 Cowork 兼容修复"
+  Write-Host "10. 修复官方 Claude MSIX Cowork 沙箱（高级）"
   Write-Host "0. 退出"
   Write-Host ""
 
@@ -227,6 +234,20 @@ while ($true) {
     Stop-ClaudeProcesses
     Run-Patcher @("--apply-cowork-compat")
     Run-Patcher @("--create-shortcuts")
+    Pause-Menu
+    continue
+  }
+
+  if ($Choice -eq "10") {
+    Write-Host ""
+    Write-Host "这个操作会触碰官方 Claude MSIX 沙箱，并可能启动 CoworkVMService。" -ForegroundColor Yellow
+    Write-Host "只有在使用绿色版后，官方 Claude 的 Cowork 失效时才建议使用。" -ForegroundColor Yellow
+    $Confirm = Read-Host "输入 REPAIR 确认继续"
+    if ($Confirm -eq "REPAIR") {
+      Run-Patcher @("--sync-msix-cowork")
+    } else {
+      Write-Host "已取消。"
+    }
     Pause-Menu
     continue
   }

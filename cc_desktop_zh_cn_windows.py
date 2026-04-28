@@ -66,6 +66,17 @@ COWORK_PORTABLE_ENV_TOKEN = b"process.env.CZCOWORK"
 if len(COWORK_WINDOWS_STORE_TOKEN) != len(COWORK_PORTABLE_ENV_TOKEN):
     raise RuntimeError("Cowork portable patch tokens must have the same length.")
 
+COWORK_NAMESPACE_REPLACEMENTS: list[tuple[bytes, bytes]] = [
+    (b"cowork-vm-service", b"ccdesk-vm-service"),
+    (b"cowork-vm-portabl", b"ccdesk-vm-service"),
+    (b"cowork-vm-nat", b"ccdesk-vm-nat"),
+    (b"cowork-vm-store", b"ccdesk-vm-store"),
+]
+for source_token, target_token in COWORK_NAMESPACE_REPLACEMENTS:
+    if len(source_token) != len(target_token):
+        raise RuntimeError("Cowork namespace replacement tokens must have the same length.")
+COWORK_PORTABLE_PIPE_NAME = "ccdesk-vm-service"
+
 
 def run(cmd: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=check)
@@ -430,10 +441,25 @@ def create_launcher(target_dir: Path) -> Path:
     launcher.parent.mkdir(parents=True, exist_ok=True)
     exe_path = str(exe).replace('"', '""')
     working_dir = str(exe.parent).replace('"', '""')
+    svc_path = str(exe.parent / "resources" / "cowork-svc.exe").replace('"', '""')
     content = f'''Set shell = CreateObject("WScript.Shell")
 Set env = shell.Environment("PROCESS")
 env("{COWORK_PORTABLE_ENV}") = "1"
 shell.CurrentDirectory = "{working_dir}"
+Set fso = CreateObject("Scripting.FileSystemObject")
+svcPath = "{svc_path}"
+pipePath = "\\\\.\\pipe\\{COWORK_PORTABLE_PIPE_NAME}"
+If fso.FileExists(svcPath) Then
+  If Not fso.FileExists(pipePath) Then
+    On Error Resume Next
+    shell.Run """" & svcPath & """", 0, False
+    On Error GoTo 0
+  End If
+  For i = 1 To 30
+    If fso.FileExists(pipePath) Then Exit For
+    WScript.Sleep 500
+  Next
+End If
 shell.Run """" & "{exe_path}" & """", 1, False
 '''
     launcher.write_text(content, encoding="utf-8")
@@ -467,10 +493,27 @@ $link.Save()
         raise SystemExit(result.stdout.strip() or f"Failed to create shortcut: {shortcut}")
 
 
-def create_shortcuts(target_dir: Path) -> int:
+def create_shortcuts(target_dir: Path, dry_run: bool = False) -> int:
     exe = app_exe(target_dir.expanduser())
     if not exe:
         raise SystemExit(f"Cannot find patched Claude.exe in: {target_dir}")
+
+    if dry_run:
+        launcher = launcher_path()
+        print(f"[dry-run] Would create launcher: {launcher}")
+        wscript = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32/wscript.exe"
+        for label, shortcut in shortcut_paths().items():
+            print(f"[dry-run] Would create {label} shortcut: {shortcut} -> {wscript} \"{launcher}\"")
+
+        claude_code = claude_code_command()
+        if not claude_code:
+            print("Claude Code command was not found, skipping Claude Code shortcuts.")
+            return 0
+
+        cmd = Path(os.environ.get("ComSpec") or (Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32/cmd.exe"))
+        for label, shortcut in claude_code_shortcut_paths().items():
+            print(f"[dry-run] Would create {label} shortcut: {shortcut} -> {cmd} /k \"{claude_code}\"")
+        return 0
 
     launcher = create_launcher(target_dir)
     wscript = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32/wscript.exe"
@@ -1632,6 +1675,14 @@ def sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def asar_header_hash(data: bytes) -> str:
     json_start, json_end, _, _ = parse_asar(data)
     return sha256_hex(data[json_start:json_end])
@@ -1721,7 +1772,7 @@ def patch_asar_file_content_and_integrity(
 
 def backup_header_hashes(asar: Path) -> list[str]:
     hashes: list[str] = []
-    for backup in sorted(asar.parent.glob(f"{asar.name}.bak-before-cowork-compat-*"), reverse=True):
+    for backup in sorted(asar.parent.glob(f"{asar.name}.bak-*"), reverse=True):
         try:
             header_hash = asar_header_hash(backup.read_bytes())
         except Exception:
@@ -1869,6 +1920,142 @@ def patch_hardcoded_desktop_menu_strings(app_dir: Path, dry_run: bool = False) -
     return 0
 
 
+def patch_binary_tokens(path: Path, replacements: list[tuple[bytes, bytes]], reason: str, label: str, dry_run: bool = False) -> int:
+    if not path.exists():
+        print(f"{label} was not found, skipping: {path}")
+        return 0
+
+    data = path.read_bytes()
+    old_total = sum(data.count(source) for source, _ in replacements)
+    new_total = sum(data.count(target) for _, target in replacements)
+    if old_total == 0:
+        if new_total:
+            print(f"{label} namespace is already patched: {path}")
+        else:
+            print(f"{label} namespace tokens were not found, skipping: {path}")
+        return 0
+
+    if dry_run:
+        print(f"[dry-run] Would patch {old_total} {label} namespace token(s): {path}")
+        return 0
+
+    backup = backup_file(path, reason)
+    patched = data
+    for source, target in replacements:
+        patched = patched.replace(source, target)
+
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    try:
+        tmp.write_bytes(patched)
+        os.replace(tmp, path)
+    except PermissionError:
+        if tmp.exists():
+            tmp.unlink()
+        if backup.exists():
+            shutil.copy2(backup, path)
+        raise SystemExit(
+            f"Could not patch {label} because Windows denied access. "
+            "Close Claude completely, then run option 9 again."
+        )
+    except Exception:
+        if tmp.exists():
+            tmp.unlink()
+        if backup.exists():
+            shutil.copy2(backup, path)
+        raise
+
+    print(f"Backed up {label}: {backup}")
+    print(f"Patched {label} namespace: {old_total} replacement(s)")
+    return old_total
+
+
+def patch_asar_namespace_tokens(app_dir: Path, dry_run: bool = False) -> int:
+    asar = app_dir.expanduser() / "resources/app.asar"
+    if not asar.exists():
+        print(f"Claude app.asar was not found, skipping Cowork namespace patch: {asar}")
+        return 0
+
+    source_tokens = [source for source, _ in COWORK_NAMESPACE_REPLACEMENTS]
+    target_tokens = [target for _, target in COWORK_NAMESPACE_REPLACEMENTS]
+    source_counts = count_asar_tokens(asar, source_tokens)
+    target_counts = count_asar_tokens(asar, target_tokens)
+    source_total = sum(source_counts.values())
+    target_total = sum(target_counts.values())
+
+    if source_total == 0:
+        if target_total:
+            print(f"Cowork ASAR namespace is already patched: {asar}")
+            if not dry_run:
+                current_hash = asar_header_hash(asar.read_bytes())
+                patch_exe_asar_header_hash(app_dir, current_hash, backup_header_hashes(asar), "before-cowork-namespace")
+        else:
+            print(f"Cowork namespace tokens were not found in ASAR, skipping: {asar}")
+        return 0
+
+    if dry_run:
+        print(f"[dry-run] Would patch {source_total} Cowork namespace token(s) in {asar}.")
+        return 0
+
+    backup = backup_file(asar, "before-cowork-namespace")
+    old_header_hashes: list[str] = []
+    final_header_hash = asar_header_hash(asar.read_bytes())
+    patched_total = 0
+    patched_files_total = 0
+
+    try:
+        for source, target in COWORK_NAMESPACE_REPLACEMENTS:
+            patched_files, patched_tokens, old_header_hash, new_header_hash = patch_asar_file_content_and_integrity(
+                asar,
+                source,
+                target,
+            )
+            if patched_tokens:
+                old_header_hashes.append(old_header_hash)
+                final_header_hash = new_header_hash
+                patched_total += patched_tokens
+                patched_files_total += patched_files
+    except PermissionError:
+        if backup.exists():
+            shutil.copy2(backup, asar)
+        raise SystemExit(
+            "Could not patch Cowork namespace because Windows denied access. "
+            "Close Claude completely, then run option 9 again."
+        )
+    except Exception:
+        if backup.exists():
+            shutil.copy2(backup, asar)
+        raise
+
+    print(f"Backed up Claude app.asar: {backup}")
+    print(
+        f"Patched Cowork ASAR namespace: "
+        f"{patched_total} replacement(s) in {patched_files_total} file patch(es)"
+    )
+    patch_exe_asar_header_hash(
+        app_dir,
+        final_header_hash,
+        [*old_header_hashes, *backup_header_hashes(asar)],
+        "before-cowork-namespace",
+    )
+    return patched_total
+
+
+def patch_cowork_namespace(app_dir: Path, dry_run: bool = False) -> int:
+    app_dir = app_dir.expanduser()
+    patched = 0
+    patched += patch_binary_tokens(
+        app_dir / "resources/cowork-svc.exe",
+        COWORK_NAMESPACE_REPLACEMENTS,
+        "before-cowork-namespace",
+        "cowork-svc.exe",
+        dry_run,
+    )
+    patched += patch_asar_namespace_tokens(app_dir, dry_run)
+    if not dry_run:
+        create_launcher(app_dir)
+    return patched
+
+
 def patch_cowork_portable_detection(app_dir: Path, dry_run: bool = False) -> int:
     asar = app_dir.expanduser() / "resources/app.asar"
     if not asar.exists():
@@ -1892,14 +2079,16 @@ def patch_cowork_portable_detection(app_dir: Path, dry_run: bool = False) -> int
 
     if portable_count > 0 and token_count == 0:
         print(f"Cowork portable compatibility patch is already applied: {asar}")
-        current_hash = asar_header_hash(data)
-        patch_exe_asar_header_hash(app_dir, current_hash, backup_header_hashes(asar), "before-cowork-compat")
-        create_launcher(app_dir)
+        if not dry_run:
+            current_hash = asar_header_hash(data)
+            patch_exe_asar_header_hash(app_dir, current_hash, backup_header_hashes(asar), "before-cowork-compat")
+            create_launcher(app_dir)
         return 0
 
     if token_count == 0:
         print(f"Cowork MSIX detection token was not found, skipping patch: {asar}")
-        create_launcher(app_dir)
+        if not dry_run:
+            create_launcher(app_dir)
         return 0
 
     if dry_run:
@@ -1937,6 +2126,100 @@ def patch_cowork_portable_detection(app_dir: Path, dry_run: bool = False) -> int
         "before-cowork-compat",
     )
     create_launcher(app_dir)
+    return 0
+
+
+def apply_cowork_compat(app_dir: Path, dry_run: bool = False) -> int:
+    patch_cowork_portable_detection(app_dir, dry_run)
+    patch_cowork_namespace(app_dir, dry_run)
+    return 0
+
+
+def sync_msix_cowork_compat(dry_run: bool = False) -> int:
+    packages_dir = local_app_data() / "Packages"
+    if not packages_dir.exists():
+        print(f"MSIX package directory was not found, skipping official Cowork repair: {packages_dir}")
+        return 0
+
+    msix_pkgs = sorted(packages_dir.glob("Claude_*"))
+    if not msix_pkgs:
+        print("No official Claude MSIX package directory was found.")
+        return 0
+
+    src = roaming_app_data() / "Claude-3p" / "vm_bundles" / "claudevm.bundle" / "smol-bin.vhdx"
+    if not src.exists():
+        print(f"Portable smol-bin.vhdx was not found, skipping official Cowork repair: {src}")
+    try:
+        result = run(
+            [
+                powershell_exe(),
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                "Get-Service -Name 'CoworkVMService' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Status",
+            ],
+            check=False,
+        )
+        status = result.stdout.strip().lower()
+        if status and status != "running":
+            if dry_run:
+                print(f"[dry-run] Would start CoworkVMService (currently {status}).")
+            else:
+                start = run(
+                    [
+                        powershell_exe(),
+                        "-NoProfile",
+                        "-ExecutionPolicy",
+                        "Bypass",
+                        "-Command",
+                        "Start-Service -Name 'CoworkVMService' -ErrorAction Stop",
+                    ],
+                    check=False,
+                )
+                if start.returncode == 0:
+                    print("Started CoworkVMService.")
+                else:
+                    print(f"Warning: could not start CoworkVMService: {start.stdout.strip()}")
+        elif status == "running":
+            print("CoworkVMService is already running.")
+        else:
+            print("CoworkVMService was not found.")
+    except Exception as exc:
+        print(f"Warning: could not check/start CoworkVMService: {exc}")
+
+    if not src.exists():
+        return 0
+
+    for pkg in msix_pkgs:
+        dst = (
+            pkg
+            / "LocalCache"
+            / "Roaming"
+            / "Claude-3p"
+            / "vm_bundles"
+            / "claudevm.bundle"
+            / "smol-bin.vhdx"
+        )
+        needs_copy = not dst.exists()
+        if dst.exists():
+            try:
+                needs_copy = src.stat().st_size != dst.stat().st_size or file_sha256(src) != file_sha256(dst)
+            except OSError:
+                needs_copy = True
+
+        if not needs_copy:
+            print(f"Official MSIX sandbox smol-bin.vhdx is already current: {dst}")
+            continue
+
+        if dry_run:
+            print(f"[dry-run] Would sync smol-bin.vhdx to official MSIX sandbox: {dst}")
+            continue
+
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
+        print(f"Synced smol-bin.vhdx to official MSIX sandbox: {dst}")
+
     return 0
 
 
@@ -2003,7 +2286,7 @@ def apply_user_settings(target_dir: Path) -> int:
     set_user_locale(False)
     enable_developer_mode(False)
     apply_locale_resources(target_dir, False)
-    patch_cowork_portable_detection(target_dir, False)
+    apply_cowork_compat(target_dir, False)
     try:
         create_shortcuts(target_dir)
     except SystemExit as exc:
@@ -2031,21 +2314,32 @@ def launch(app_dir: Path) -> None:
     if not exe:
         raise SystemExit(f"Cannot find Claude.exe in {app_dir}")
     print(f"Launching Claude: {exe}")
-    env = os.environ.copy()
-    env[COWORK_PORTABLE_ENV] = "1"
     creationflags = 0
     if os.name == "nt":
         creationflags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-    subprocess.Popen(
-        [str(exe)],
-        cwd=str(app_dir),
-        env=env,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        close_fds=True,
-        creationflags=creationflags,
-    )
+        launcher = create_launcher(app_dir)
+        subprocess.Popen(
+            ["wscript.exe", str(launcher)],
+            cwd=str(launcher.parent),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+            creationflags=creationflags,
+        )
+    else:
+        env = os.environ.copy()
+        env[COWORK_PORTABLE_ENV] = "1"
+        subprocess.Popen(
+            [str(exe)],
+            cwd=str(app_dir),
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+            creationflags=creationflags,
+        )
     print("Claude was started in a separate process. This tool window can be closed or returned to the menu.")
 
 
@@ -2117,7 +2411,8 @@ def main() -> int:
     parser.add_argument("--check-third-party-sources", action="store_true", help="Check whether reusable third-party model inference config exists")
     parser.add_argument("--third-party-wizard", action="store_true", help="Open the third-party model inference config wizard")
     parser.add_argument("--apply-third-party-inference", action="store_true", help="Generate Desktop gateway config from Claude Code settings")
-    parser.add_argument("--apply-cowork-compat", action="store_true", help="Patch portable Claude so Cowork does not require the MSIX launch path")
+    parser.add_argument("--apply-cowork-compat", action="store_true", help="Patch portable Claude so Cowork can coexist with the official MSIX version")
+    parser.add_argument("--sync-msix-cowork", action="store_true", help="Advanced: repair official MSIX Cowork sandbox data after portable usage")
     parser.add_argument("--patch-desktop-menu", action="store_true", help="Patch hardcoded desktop menu strings into zh-CN")
     parser.add_argument("--apply-locale", action="store_true", help="Apply zh-CN locale resources to the patched copy without reinstalling")
     parser.add_argument("--clean-user-data", action="store_true", help="Move Claude user config/account data to a timestamped backup")
@@ -2143,7 +2438,9 @@ def main() -> int:
     if args.apply_third_party_inference:
         return apply_third_party_inference_config(False)
     if args.apply_cowork_compat:
-        return patch_cowork_portable_detection(args.target_dir, False)
+        return apply_cowork_compat(args.target_dir, args.dry_run)
+    if args.sync_msix_cowork:
+        return sync_msix_cowork_compat(args.dry_run)
     if args.patch_desktop_menu:
         return patch_hardcoded_desktop_menu_strings(args.target_dir, False)
     if args.apply_locale:
@@ -2151,7 +2448,7 @@ def main() -> int:
     if args.clean_user_data:
         return clean_user_data(args.yes)
     if args.create_shortcuts:
-        return create_shortcuts(args.target_dir)
+        return create_shortcuts(args.target_dir, args.dry_run)
     if args.apply_user_settings:
         return apply_user_settings(args.target_dir)
     if args.full_clean:
@@ -2162,11 +2459,11 @@ def main() -> int:
 
     app_dir = prepare_app(args)
     apply_locale_resources(app_dir, args.dry_run)
-    patch_cowork_portable_detection(app_dir, args.dry_run)
+    apply_cowork_compat(app_dir, args.dry_run)
     set_user_locale(args.dry_run)
     enable_developer_mode(args.dry_run)
     verify(app_dir)
-    create_shortcuts(app_dir)
+    create_shortcuts(app_dir, args.dry_run)
 
     if args.launch and not args.dry_run:
         launch(app_dir)

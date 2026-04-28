@@ -72,6 +72,12 @@ function Offer-ThirdPartyWizard {
 function Stop-ClaudeProcesses {
   Get-Process Claude -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
   Get-Process claude -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+  $PortableCoworkSvc = Join-Path $env:LOCALAPPDATA "ClaudeZhCN\Claude\resources\cowork-svc.exe"
+  if (Test-Path $PortableCoworkSvc) {
+    Get-CimInstance Win32_Process -Filter "Name = 'cowork-svc.exe'" -ErrorAction SilentlyContinue |
+      Where-Object { $_.ExecutablePath -eq $PortableCoworkSvc } |
+      ForEach-Object { Invoke-CimMethod -InputObject $_ -MethodName Terminate -ErrorAction SilentlyContinue | Out-Null }
+  }
 }
 
 function Launch-AfterPatch {
@@ -135,6 +141,7 @@ while ($true) {
   Write-Host "7. Full clean portable zh-CN tool files"
   Write-Host "8. Third-party model inference config wizard"
   Write-Host "9. Apply Cowork compatibility fix"
+  Write-Host "10. Repair official Claude MSIX Cowork sandbox (advanced)"
   Write-Host "0. Exit"
   Write-Host ""
 
@@ -227,6 +234,20 @@ while ($true) {
     Stop-ClaudeProcesses
     Run-Patcher @("--apply-cowork-compat")
     Run-Patcher @("--create-shortcuts")
+    Pause-Menu
+    continue
+  }
+
+  if ($Choice -eq "10") {
+    Write-Host ""
+    Write-Host "This touches the official Claude MSIX sandbox and may start CoworkVMService." -ForegroundColor Yellow
+    Write-Host "Use it only if the official Claude app loses Cowork after using the portable copy." -ForegroundColor Yellow
+    $Confirm = Read-Host "Type REPAIR to continue"
+    if ($Confirm -eq "REPAIR") {
+      Run-Patcher @("--sync-msix-cowork")
+    } else {
+      Write-Host "Cancelled."
+    }
     Pause-Menu
     continue
   }

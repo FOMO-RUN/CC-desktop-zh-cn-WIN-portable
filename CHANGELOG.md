@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.2.2 - 2026-04-29
+
+### Added
+
+- 新增绿色版 Cowork VM 命名空间隔离：将管道、NAT 网络和存储名从 `cowork-vm-*` 改为 `ccdesk-vm-*`，降低与官方 MSIX 版同时运行时的冲突。
+- 启动器会先启动绿色版自己的 `cowork-svc.exe`，并等待 `\\.\pipe\ccdesk-vm-service` 就绪后再启动 Claude。
+- 新增高级菜单项，用于在官方 MSIX 版 Cowork 受绿色版影响时手动修复官方沙箱中的 `smol-bin.vhdx`。
+
+### Changed
+
+- `--apply-cowork-compat` 现在会同时应用路径检测修复和 Cowork 命名空间隔离。
+- 菜单停止 Claude 进程时会按精确路径清理绿色版残留 `cowork-svc.exe`，不影响官方 `CoworkVMService`。
+- `--dry-run` 现在不会再创建启动器或快捷方式，只输出将要执行的操作。
+
+### Thanks
+
+- 感谢 [@chrichuang218](https://github.com/chrichuang218) 的 PR 对 Cowork VM 管道冲突、启动器就绪检测和官方 MSIX 沙箱问题提供实测线索。
+
 ## v0.2.1 - 2026-04-27
 
 ### Fixed

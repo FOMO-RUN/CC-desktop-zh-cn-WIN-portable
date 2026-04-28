@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.2.3 - 2026-04-29
+
+### Fixed
+
+- 启动器现在使用独立的 `%APPDATA%\ClaudeZhCN-3p` 用户数据目录，避免官方 Claude 已打开时，中文绿色版被 Electron 单实例锁转交给官方窗口。
+- 修复从 MSIX 解包时 `%40` 没有还原为 `@` 的问题，避免 `app.asar.unpacked\node_modules\@ant\claude-native` 原生模块加载失败。
+- `--create-shortcuts` 会重建带独立用户数据参数的 VBS 启动器。
+
+### Changed
+
+- 第三方大模型推理配置默认写入中文绿色版专用的 `%APPDATA%\ClaudeZhCN-3p`，仍可通过向导从官方 Claude Desktop 或 Claude Code 同步。
+
 ## v0.2.2 - 2026-04-29
 
 ### Added

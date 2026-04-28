@@ -14,7 +14,7 @@
 - 中文化体验：合并前端中文资源，并补丁处理部分硬编码菜单、设置页、Code[代码] / Cowork[协作] 文案。
 - 配置选择权：第三方大模型推理配置向导可以保持全新，也可以同步 Claude Desktop 或 Claude Code 的已有配置。
 - 可跳过登录模式选择：导入或生成配置后，工具会启用 `disableDeploymentModeChooser`，直接进入第三方大模型推理模式。
-- 原版共存：开始菜单里的原版 Claude 仍然是英文官方版，`Claude zh-CN` 快捷方式启动的是中文绿色版。
+- 原版共存：开始菜单里的原版 Claude 仍然是英文官方版，`Claude zh-CN` 快捷方式启动的是中文绿色版，并使用独立的 `%APPDATA%\ClaudeZhCN-3p` 用户数据目录避免单实例冲突。
 - Code[代码] / Cowork[协作] 共存：修复绿色版路径检测，并隔离 Cowork VM 的管道、网络和存储命名空间，降低与官方 MSIX 版同时运行时的冲突。
 - 快捷方式自动创建：首次汉化或更新后自动创建 `Claude zh-CN` 和 `Claude Code` 的桌面 / 开始菜单快捷方式。
 - 更新友好：版本相同则跳过下载；官方下载接口异常时会回退到本机已安装 Claude。
@@ -30,6 +30,7 @@ flowchart TD
     C --> D["合并 frontend / desktop / statsig 中文资源"]
     D --> E["补丁硬编码文案和桌面菜单"]
     E --> F["修复 Code[代码] / Cowork[协作] 绿色版检测与 VM 命名空间"]
+    F --> J["使用 %APPDATA%\\ClaudeZhCN-3p 独立用户数据"]
     F --> G["创建 Claude zh-CN 快捷方式"]
     F --> H["创建 Claude Code 快捷方式"]
     A -.-> I["原版 Claude Desktop 继续保留，不修改官方安装"]
@@ -102,6 +103,8 @@ cd C:\Users\TC\Downloads\claude-desktop-zh-cn-main
 用户数据：
 
 ```text
+%APPDATA%\ClaudeZhCN-3p
+%APPDATA%\ClaudeZhCN
 %APPDATA%\Claude
 %APPDATA%\Claude-3p
 %LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude
@@ -236,7 +239,7 @@ cowork-vm-nat     -> ccdesk-vm-nat
 cowork-vm-store   -> ccdesk-vm-store
 ```
 
-这会同时处理 `app.asar` 和 `resources\cowork-svc.exe`，并重建启动器。启动 `Claude zh-CN` 快捷方式时，启动器会先启动绿色版自己的 `cowork-svc.exe`，等待 `\\.\pipe\ccdesk-vm-service` 就绪后再打开 Claude。
+这会同时处理 `app.asar` 和 `resources\cowork-svc.exe`，并重建启动器。启动 `Claude zh-CN` 快捷方式时，启动器会先启动绿色版自己的 `cowork-svc.exe`，等待 `\\.\pipe\ccdesk-vm-service` 就绪后，再用 `--user-data-dir=%APPDATA%\ClaudeZhCN-3p` 打开 Claude。这样官方版已打开时，中文绿色版也不会被 Electron 单实例锁转交给官方窗口。
 
 修复时会备份：
 
@@ -248,7 +251,7 @@ cowork-vm-store   -> ccdesk-vm-store
 %LOCALAPPDATA%\ClaudeZhCN\Claude\Claude.exe.bak-before-cowork-namespace-*
 ```
 
-请通过桌面或开始菜单中的 `Claude zh-CN` 快捷方式启动。不要直接双击绿色副本里的 `Claude.exe`，否则可能绕过启动器环境变量。
+请通过桌面或开始菜单中的 `Claude zh-CN` 快捷方式启动。不要直接双击绿色副本里的 `Claude.exe`，否则可能绕过启动器环境变量和独立用户数据参数。
 
 菜单 `10` 是高级修复项，只用于官方 MSIX 版在使用绿色版后出现 Cowork 启动失败的情况。它会尝试启动官方 `CoworkVMService`，并把绿色版生成的 `smol-bin.vhdx` 同步到官方 MSIX 沙箱目录。默认汉化 / 更新流程不会自动触碰官方版沙箱数据。
 
@@ -305,7 +308,7 @@ cowork-vm-store   -> ccdesk-vm-store
 - 官方安装包、MSIX、APPX。
 - 解包后的官方应用目录。
 - `%LOCALAPPDATA%\ClaudeZhCN` 里的运行时文件、下载缓存或备份。
-- `%APPDATA%\Claude`、`%APPDATA%\Claude-3p` 或 `%USERPROFILE%\.claude` 中的账号数据、访问令牌[token]、API key。
+- `%APPDATA%\ClaudeZhCN-3p`、`%APPDATA%\ClaudeZhCN`、`%APPDATA%\Claude`、`%APPDATA%\Claude-3p` 或 `%USERPROFILE%\.claude` 中的账号数据、访问令牌[token]、API key。
 - 任何本地 `.env`、`settings.local.json`、日志、缓存。
 
 ## License

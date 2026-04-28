@@ -127,6 +127,14 @@ def launcher_path() -> Path:
     return tool_root() / "launch_claude_zh_cn.vbs"
 
 
+def portable_user_data_dir() -> Path:
+    return roaming_app_data() / "ClaudeZhCN-3p"
+
+
+def legacy_portable_user_data_dirs() -> list[Path]:
+    return [roaming_app_data() / "ClaudeZhCN"]
+
+
 def powershell_exe() -> str:
     return "powershell.exe"
 
@@ -255,6 +263,8 @@ def find_source_app_dir() -> Path | None:
 
 def user_data_paths() -> list[Path]:
     paths = [
+        portable_user_data_dir(),
+        *legacy_portable_user_data_dirs(),
         roaming_app_data() / "Claude",
         roaming_app_data() / "Claude-3p",
     ]
@@ -282,7 +292,11 @@ def user_data_paths() -> list[Path]:
 
 
 def third_party_data_paths() -> list[Path]:
-    paths = [roaming_app_data() / "Claude-3p"]
+    paths = [
+        portable_user_data_dir(),
+        *legacy_portable_user_data_dirs(),
+        roaming_app_data() / "Claude-3p",
+    ]
 
     packages = local_app_data() / "Packages"
     if packages.exists():
@@ -439,20 +453,25 @@ def create_launcher(target_dir: Path) -> Path:
 
     launcher = launcher_path()
     launcher.parent.mkdir(parents=True, exist_ok=True)
+    portable_user_data_dir().mkdir(parents=True, exist_ok=True)
     exe_path = str(exe).replace('"', '""')
     working_dir = str(exe.parent).replace('"', '""')
     svc_path = str(exe.parent / "resources" / "cowork-svc.exe").replace('"', '""')
+    user_data_dir = str(portable_user_data_dir()).replace('"', '""')
     content = f'''Set shell = CreateObject("WScript.Shell")
 Set env = shell.Environment("PROCESS")
 env("{COWORK_PORTABLE_ENV}") = "1"
 shell.CurrentDirectory = "{working_dir}"
 Set fso = CreateObject("Scripting.FileSystemObject")
+q = Chr(34)
+exePath = "{exe_path}"
 svcPath = "{svc_path}"
+userDataDir = "{user_data_dir}"
 pipePath = "\\\\.\\pipe\\{COWORK_PORTABLE_PIPE_NAME}"
 If fso.FileExists(svcPath) Then
   If Not fso.FileExists(pipePath) Then
     On Error Resume Next
-    shell.Run """" & svcPath & """", 0, False
+    shell.Run q & svcPath & q, 0, False
     On Error GoTo 0
   End If
   For i = 1 To 30
@@ -460,7 +479,8 @@ If fso.FileExists(svcPath) Then
     WScript.Sleep 500
   Next
 End If
-shell.Run """" & "{exe_path}" & """", 1, False
+command = q & exePath & q & " --user-data-dir=" & q & userDataDir & q
+shell.Run command, 1, False
 '''
     launcher.write_text(content, encoding="utf-8")
     print(f"Created launcher: {launcher}")
@@ -501,6 +521,7 @@ def create_shortcuts(target_dir: Path, dry_run: bool = False) -> int:
     if dry_run:
         launcher = launcher_path()
         print(f"[dry-run] Would create launcher: {launcher}")
+        print(f"[dry-run] Would use portable user data: {portable_user_data_dir()}")
         wscript = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32/wscript.exe"
         for label, shortcut in shortcut_paths().items():
             print(f"[dry-run] Would create {label} shortcut: {shortcut} -> {wscript} \"{launcher}\"")
@@ -700,6 +721,65 @@ def copy_app_dir(source_app_dir: Path, target_dir: Path, dry_run: bool) -> None:
     print(f"Copying Claude app files: {source_app_dir} -> {target_dir}")
     target_dir.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(source_app_dir, target_dir)
+    normalize_percent_encoded_paths(target_dir, dry_run=False)
+
+
+def decoded_msix_part(part: str) -> str:
+    decoded = urllib.parse.unquote(part)
+    if not decoded or decoded in {".", ".."} or "/" in decoded or "\\" in decoded:
+        raise SystemExit(f"Unsafe decoded MSIX path segment: {part!r}")
+    return decoded
+
+
+def merge_or_move_path(source: Path, target: Path) -> None:
+    if source == target or not source.exists():
+        return
+
+    if source.is_dir():
+        target.mkdir(parents=True, exist_ok=True)
+        for child in list(source.iterdir()):
+            merge_or_move_path(child, target / child.name)
+        source.rmdir()
+        return
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        if target.is_file() and source.stat().st_size == target.stat().st_size and file_sha256(source) == file_sha256(target):
+            source.unlink()
+            return
+        duplicate = unique_backup_path(source.with_name(f"{source.name}.duplicate-before-path-decode"))
+        source.rename(duplicate)
+        print(f"Kept duplicate encoded file instead of overwriting: {duplicate}")
+        return
+
+    source.rename(target)
+
+
+def normalize_percent_encoded_paths(root: Path, dry_run: bool = False) -> int:
+    if not root.exists():
+        return 0
+
+    changed = 0
+    paths = sorted(root.rglob("*"), key=lambda item: len(item.parts))
+    for path in paths:
+        if not path.exists():
+            continue
+        decoded_name = urllib.parse.unquote(path.name)
+        if decoded_name == path.name:
+            continue
+        if not decoded_name or decoded_name in {".", ".."} or "/" in decoded_name or "\\" in decoded_name:
+            raise SystemExit(f"Unsafe decoded path name: {path}")
+        target = path.with_name(decoded_name)
+        if dry_run:
+            print(f"[dry-run] Would normalize encoded path: {path} -> {target}")
+        else:
+            merge_or_move_path(path, target)
+            print(f"Normalized encoded path: {path} -> {target}")
+        changed += 1
+
+    if changed:
+        print(f"Normalized {changed} percent-encoded path(s).")
+    return changed
 
 
 def safe_extract_msix_app(msix: Path, target_dir: Path, dry_run: bool) -> None:
@@ -718,7 +798,7 @@ def safe_extract_msix_app(msix: Path, target_dir: Path, dry_run: bool) -> None:
 
         for info in app_members:
             rel_posix = PurePosixPath(info.filename).relative_to("app")
-            rel_path = Path(*rel_posix.parts)
+            rel_path = Path(*(decoded_msix_part(part) for part in rel_posix.parts))
             out_path = target_dir / rel_path
             resolved = out_path.resolve()
             if target_root not in [resolved, *resolved.parents]:
@@ -998,6 +1078,7 @@ def apply_locale_resources(app_dir: Path, dry_run: bool = False) -> int:
         print(f"Claude frontend resources were not found, skipping locale patch: {app_dir}")
         return 0
 
+    normalize_percent_encoded_paths(app_dir, dry_run)
     require_file(FRONTEND_TRANSLATION)
     require_file(DESKTOP_TRANSLATION)
     patch_language_whitelist(app_dir)
@@ -1058,7 +1139,10 @@ def install_statsig_locale(app_dir: Path) -> None:
 
 
 def config_paths() -> list[Path]:
-    paths = [roaming_app_data() / "Claude/config.json"]
+    paths = [
+        portable_user_data_dir() / "config.json",
+        roaming_app_data() / "Claude/config.json",
+    ]
     packages = local_app_data() / "Packages"
     if packages.exists():
         for package in packages.glob("Claude_*"):
@@ -1077,7 +1161,10 @@ def config_paths() -> list[Path]:
 
 
 def developer_settings_paths() -> list[Path]:
-    paths = [roaming_app_data() / "Claude/developer_settings.json"]
+    paths = [
+        portable_user_data_dir() / "developer_settings.json",
+        roaming_app_data() / "Claude/developer_settings.json",
+    ]
     packages = local_app_data() / "Packages"
     if packages.exists():
         for package in packages.glob("Claude_*"):
@@ -2146,9 +2233,15 @@ def sync_msix_cowork_compat(dry_run: bool = False) -> int:
         print("No official Claude MSIX package directory was found.")
         return 0
 
-    src = roaming_app_data() / "Claude-3p" / "vm_bundles" / "claudevm.bundle" / "smol-bin.vhdx"
+    src_candidates = [
+        portable_user_data_dir() / "vm_bundles" / "claudevm.bundle" / "smol-bin.vhdx",
+        roaming_app_data() / "Claude-3p" / "vm_bundles" / "claudevm.bundle" / "smol-bin.vhdx",
+    ]
+    src = next((candidate for candidate in src_candidates if candidate.exists()), src_candidates[0])
     if not src.exists():
-        print(f"Portable smol-bin.vhdx was not found, skipping official Cowork repair: {src}")
+        print("Portable smol-bin.vhdx was not found, skipping official Cowork repair. Checked:")
+        for candidate in src_candidates:
+            print(f"  {candidate}")
     try:
         result = run(
             [

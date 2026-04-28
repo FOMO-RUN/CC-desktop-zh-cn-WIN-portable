@@ -166,9 +166,9 @@ while ($true) {
   if ($Choice -eq "3") {
     Run-Patcher @("--show-user-data")
     Write-Host ""
-    $Open = Read-Host "Open the main Claude user data folder? (Y/N)"
+    $Open = Read-Host "Open the portable zh-CN user data folder? (Y/N)"
     if ($Open -match "^[Yy]") {
-      $MainData = Join-Path $env:APPDATA "Claude"
+      $MainData = Join-Path $env:APPDATA "ClaudeZhCN-3p"
       if (Test-Path $MainData) {
         Start-Process explorer.exe $MainData
       } else {

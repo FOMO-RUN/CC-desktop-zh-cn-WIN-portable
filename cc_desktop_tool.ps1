@@ -142,6 +142,7 @@ while ($true) {
   Write-Host "8. Third-party model inference config wizard"
   Write-Host "9. Apply Cowork compatibility fix"
   Write-Host "10. Repair official Claude MSIX Cowork sandbox (advanced)"
+  Write-Host "11. Prepare clean Cowork switch"
   Write-Host "0. Exit"
   Write-Host ""
 
@@ -245,6 +246,22 @@ while ($true) {
     $Confirm = Read-Host "Type REPAIR to continue"
     if ($Confirm -eq "REPAIR") {
       Run-Patcher @("--sync-msix-cowork")
+    } else {
+      Write-Host "Cancelled."
+    }
+    Pause-Menu
+    continue
+  }
+
+  if ($Choice -eq "11") {
+    Write-Host ""
+    Write-Host "1. Prepare switch to portable zh-CN Claude" -ForegroundColor Cyan
+    Write-Host "2. Prepare switch to official Claude MSIX" -ForegroundColor Cyan
+    $Target = Read-Host "Choose switch target"
+    if ($Target -eq "1") {
+      Run-Patcher @("--prepare-cowork-switch", "portable")
+    } elseif ($Target -eq "2") {
+      Run-Patcher @("--prepare-cowork-switch", "official")
     } else {
       Write-Host "Cancelled."
     }

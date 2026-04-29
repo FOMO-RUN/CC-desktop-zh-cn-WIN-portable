@@ -142,6 +142,7 @@ while ($true) {
   Write-Host "8. 第三方大模型推理配置向导"
   Write-Host "9. 应用 Cowork 兼容修复"
   Write-Host "10. 修复官方 Claude MSIX Cowork 沙箱（高级）"
+  Write-Host "11. 准备干净的 Cowork 切换"
   Write-Host "0. 退出"
   Write-Host ""
 
@@ -245,6 +246,22 @@ while ($true) {
     $Confirm = Read-Host "输入 REPAIR 确认继续"
     if ($Confirm -eq "REPAIR") {
       Run-Patcher @("--sync-msix-cowork")
+    } else {
+      Write-Host "已取消。"
+    }
+    Pause-Menu
+    continue
+  }
+
+  if ($Choice -eq "11") {
+    Write-Host ""
+    Write-Host "1. 准备切换到中文绿色版 Claude" -ForegroundColor Cyan
+    Write-Host "2. 准备切换到官方 Claude MSIX" -ForegroundColor Cyan
+    $Target = Read-Host "请选择切换目标"
+    if ($Target -eq "1") {
+      Run-Patcher @("--prepare-cowork-switch", "portable")
+    } elseif ($Target -eq "2") {
+      Run-Patcher @("--prepare-cowork-switch", "official")
     } else {
       Write-Host "已取消。"
     }

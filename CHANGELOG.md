@@ -1,11 +1,42 @@
 # Changelog
 
+## v0.2.4 - 2026-04-29
+
+### Compatibility note
+
+- 中文绿色版和官方英文 MSIX 版虽然已经做了 Cowork VM 命名空间隔离，但两边仍然共用同一套 Windows HCS / Hyper-V / VM 服务状态。
+- 当前版本的目标是“手动 `prepare` 后可稳定切换使用”，不是“中英文同时并行稳定执行各自的 VM bash”。
+
+### Added
+
+- 新增 `--cleanup-cowork-residue`，用于在不误伤当前活跃窗口的前提下，手动清理绿色版 / 官方版遗留的 `cowork-svc.exe` 与 HCS VM 残留。
+- 新增 `--prepare-cowork-switch portable|official`，用于在中文绿色版和官方 MSIX 版之间手动切换前，先做定向残留收敛和必要的 Cowork 准备。
+- 英文与中文 PowerShell 菜单新增 `11. Prepare clean Cowork switch / 准备干净的 Cowork 切换`。
+
+### Fixed
+
+- 修复从旧版本或英文版历史数据切换到当前中文版并执行菜单 `1` 后，中文 profile 因路径切换和账号命名空间切换，导致旧会话、Code 会话、skills、Cowork 项目空间未被当前中文版读取的问题。
+- 修复旧 Cowork 会话只恢复索引但点开没有正文的问题：迁移流程现在会复制 Windows 长路径下的 transcript 文件，例如 `.claude\projects\...\<cliSessionId>.jsonl`。
+- 迁移流程现在会记录长路径复制失败；如果仍有关键文件无法复制，则不会误写“迁移已完成”标记，方便后续重新执行菜单 `1` 自动补迁。
+
+### Changed
+
+- 绿色版启动器现在只会清理自己的 `ccdesk-vm-*` 残留；只有在官方英文界面未运行时，才会顺手清理官方侧 `cowork-vm-*` 残留，降低互相误伤的概率。
+- `prepare-cowork-switch` 采用按目标切换的清理策略：切到中文时强制收敛官方侧残留，切到官方时强制收敛中文侧残留，便于手动切换验证。
+- 菜单 `1` / 中文启动器现在会自动检查并迁移旧版 `Claude-3p` / 英文版历史数据到 `%APPDATA%\ClaudeZhCN-3p`，减少旧会话、skills、Cowork 项目空间看起来“消失”的情况。
+
+### Notes
+
+- 当前已经验证“手动 `prepare` 后再启动对应中 / 英文”可以完成双向 Cowork 切换。
+- 官方版退出后偶发遗留 `cowork-vm-*` HCS VM 仍更像上游 Cowork / HCS 退出链路问题；项目当前通过手动 `prepare-cowork-switch` 进行兜底收敛。
+- 对于感觉“数据丢了”的旧版本用户，当前推荐恢复步骤是：完全退出中文版 Claude，重新执行菜单 `1`，然后再启动中文版。
+
 ## v0.2.3 - 2026-04-29
 
 ### Fixed
 
 - 启动器现在使用独立的 `%APPDATA%\ClaudeZhCN-3p` 用户数据目录，避免官方 Claude 已打开时，中文绿色版被 Electron 单实例锁转交给官方窗口。
-- 修复从 MSIX 解包时 `%40` 没有还原为 `@` 的问题，避免 `app.asar.unpacked\node_modules\@ant\claude-native` 原生模块加载失败。
+- 修复从 MSIX 解包时 `%40` 没有还原成 `@` 的问题，避免 `app.asar.unpacked\node_modules\@ant\claude-native` 原生模块加载失败。
 - `--create-shortcuts` 会重建带独立用户数据参数的 VBS 启动器。
 
 ### Changed
@@ -16,7 +47,7 @@
 
 ### Added
 
-- 新增绿色版 Cowork VM 命名空间隔离：将管道、NAT 网络和存储名从 `cowork-vm-*` 改为 `ccdesk-vm-*`，降低与官方 MSIX 版同时运行时的冲突。
+- 新增绿色版 Cowork VM 命名空间隔离：将管道、NAT 网络和存储命名从 `cowork-vm-*` 改为 `ccdesk-vm-*`，降低与官方 MSIX 版同时运行时的冲突。
 - 启动器会先启动绿色版自己的 `cowork-svc.exe`，并等待 `\\.\pipe\ccdesk-vm-service` 就绪后再启动 Claude。
 - 新增高级菜单项，用于在官方 MSIX 版 Cowork 受绿色版影响时手动修复官方沙箱中的 `smol-bin.vhdx`。
 

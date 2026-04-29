@@ -1,5 +1,8 @@
 # WIN CC Desktop zh-CN Portable
 
+> 中文绿色版和官方英文 MSIX 版虽然已经做了 Cowork VM 命名空间隔离，但两边仍然共用同一套 Windows HCS / Hyper-V / VM 服务状态。
+> 当前目标是“手动 `prepare` 后可稳定切换使用”，不是“中英文同时并行稳定执行各自的 VM bash”。
+
 一键生成可与官方安装版共存的中文绿色版 CC Desktop。
 
 它会从官方 Windows MSIX 或本机已安装应用生成一个独立的中文副本，放在 `%LOCALAPPDATA%\ClaudeZhCN` 下运行。原版 Claude Desktop 不会被修改，汉化版和原版可以共存。
@@ -80,6 +83,35 @@ cd C:\Users\TC\Downloads\claude-desktop-zh-cn-main
 
 如果检测到可复用的第三方大模型推理配置，工具会询问是否打开配置向导。直接选 `N` 或回车即可保持全新配置，之后也可以通过菜单 `8` 再打开向导。
 
+## 旧版本历史数据迁移
+
+如果你之前已经在其他版本的 Claude Desktop 或更早的中文便携版里积累了历史数据，然后再执行当前版本的菜单 `1`，可能会遇到下面几种现象：
+
+- 中文版历史会话、Cowork 项目空间、skills 或 Code 会话看起来像“全没了”
+- 会话列表已经恢复，但点开部分旧会话时没有正文内容
+
+这通常不是数据真的丢失，而是因为旧版和当前版使用的用户数据路径与账号命名空间不同：
+
+- 旧数据常见于 `%APPDATA%\Claude-3p`
+- 当前中文版使用 `%APPDATA%\ClaudeZhCN-3p`
+- 旧版活跃账号目录与当前中文版账号目录也可能不同
+
+当前版本的菜单 `1` / 启动器已经内置自动迁移与修复逻辑，会：
+
+- 从旧 profile 中选择历史数据更完整的一份作为迁移来源
+- 将旧账号树映射到当前中文版正在读取的账号目录
+- 复制旧会话的 transcript 文件，包括 Windows 长路径下的 `.claude\projects\...\<cliSessionId>.jsonl`
+
+推荐恢复步骤：
+
+```text
+1. 完全退出中文版 Claude
+2. 重新执行菜单 1
+3. 再启动中文版
+```
+
+如果你之前已经在旧版本脚本上跑过一次迁移，但旧会话点开仍然没有内容，可以再按上面的步骤重跑一次；当前版本已经升级迁移标记并补上长路径 transcript 复制，通常会自动完成修复。
+
 ## 默认路径
 
 绿色版应用：
@@ -136,6 +168,8 @@ cd C:\Users\TC\Downloads\claude-desktop-zh-cn-main
 7. Full clean portable zh-CN tool files
 8. Third-party model inference config wizard
 9. Apply Cowork compatibility fix
+10. Repair official Claude MSIX Cowork sandbox (advanced)
+11. Prepare clean Cowork switch
 0. Exit
 ```
 
@@ -152,6 +186,7 @@ cd C:\Users\TC\Downloads\claude-desktop-zh-cn-main
 8. 第三方大模型推理配置向导
 9. 应用 Cowork 兼容修复
 10. 修复官方 Claude MSIX Cowork 沙箱（高级）
+11. 准备干净的 Cowork 切换
 0. 退出
 ```
 
@@ -254,6 +289,42 @@ cowork-vm-store   -> ccdesk-vm-store
 请通过桌面或开始菜单中的 `Claude zh-CN` 快捷方式启动。不要直接双击绿色副本里的 `Claude.exe`，否则可能绕过启动器环境变量和独立用户数据参数。
 
 菜单 `10` 是高级修复项，只用于官方 MSIX 版在使用绿色版后出现 Cowork 启动失败的情况。它会尝试启动官方 `CoworkVMService`，并把绿色版生成的 `smol-bin.vhdx` 同步到官方 MSIX 沙箱目录。默认汉化 / 更新流程不会自动触碰官方版沙箱数据。
+
+## Cowork 手动切换
+
+如果你希望在中文绿色版和官方英文 MSIX 版之间手动切换，并尽量降低 VM 残留互相影响的概率，推荐在启动目标一侧之前先执行一次切换准备。
+
+菜单 `11` 提供两种目标：
+
+```text
+1. Prepare switch to portable zh-CN Claude
+2. Prepare switch to official Claude MSIX
+```
+
+也可以直接运行命令：
+
+```powershell
+python cc_desktop_zh_cn_windows.py --prepare-cowork-switch portable
+python cc_desktop_zh_cn_windows.py --prepare-cowork-switch official
+```
+
+推荐顺序：
+
+- 切到中文绿色版前，先执行 `--prepare-cowork-switch portable`
+- 切到官方英文版前，先执行 `--prepare-cowork-switch official`
+
+如果你只想手动清理残留而不做完整切换准备，可以使用：
+
+```powershell
+python cc_desktop_zh_cn_windows.py --cleanup-cowork-residue
+```
+
+说明：
+
+- `prepare-cowork-switch portable` 会优先收敛官方侧残留，再准备中文绿色版所需的 Cowork 缓存和启动器。
+- `prepare-cowork-switch official` 会优先收敛中文侧残留，再修复官方 MSIX 侧所需的 Cowork 沙箱兼容数据。
+- 当前已经验证“手动 prepare -> 启动对应中/英文 -> 执行 VM bash”可以完成双向切换。
+- 官方版退出后偶发残留 `cowork-vm-*` HCS VM 更像上游 Cowork / HCS 退出链路问题；本项目当前通过手动 `prepare` 在下次切换前做兜底收敛。
 
 ## 清理
 

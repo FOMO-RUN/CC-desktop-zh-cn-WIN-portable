@@ -71,6 +71,8 @@ COWORK_NAMESPACE_REPLACEMENTS: list[tuple[bytes, bytes]] = [
     (b"cowork-vm-portabl", b"ccdesk-vm-service"),
     (b"cowork-vm-nat", b"ccdesk-vm-nat"),
     (b"cowork-vm-store", b"ccdesk-vm-store"),
+    # NOTE: cowork-vm-vnet replacement breaks cowork-svc.exe (Go binary string reuse)
+    # Do NOT add (b"cowork-vm-vnet", b"ccdesk-vm-vnet") here.
 ]
 for source_token, target_token in COWORK_NAMESPACE_REPLACEMENTS:
     if len(source_token) != len(target_token):
@@ -133,6 +135,45 @@ def portable_user_data_dir() -> Path:
 
 def legacy_portable_user_data_dirs() -> list[Path]:
     return [roaming_app_data() / "ClaudeZhCN"]
+
+
+PORTABLE_USER_DATA_MIGRATION_MARKER = ".portable-user-data-migrated-v4.json"
+PORTABLE_USER_DATA_MIGRATION_ITEMS = [
+    "claude-code",
+    "claude-code-sessions",
+    "local-agent-mode-sessions",
+    "configLibrary",
+    "IndexedDB",
+    "Local Storage",
+    "Session Storage",
+    "WebStorage",
+    "blob_storage",
+    "Preferences",
+    "Local State",
+    "window-state.json",
+    "claude_desktop_config.json",
+    "config.json",
+    "developer_settings.json",
+    "git-worktrees.json",
+    "title-gen",
+    "pending-uploads",
+]
+PORTABLE_USER_DATA_PRIORITY_ITEMS = [
+    "local-agent-mode-sessions",
+    "claude-code-sessions",
+    "claude-code",
+    "configLibrary",
+]
+PORTABLE_ACCOUNT_NAMESPACE_ITEMS = [
+    "local-agent-mode-sessions",
+    "claude-code-sessions",
+    "claude-code",
+]
+ACCOUNT_REEVALUATE_RE = re.compile(
+    r"account-change reevaluate: .*?([0-9a-f-]{36}):([0-9a-f-]{36})",
+    re.IGNORECASE,
+)
+PORTABLE_MIGRATION_ERROR_LIMIT = 20
 
 
 def powershell_exe() -> str:
@@ -289,6 +330,326 @@ def user_data_paths() -> list[Path]:
             unique.append(path)
             seen.add(key)
     return unique
+
+
+def portable_user_data_migration_sources() -> list[Path]:
+    paths = [
+        *legacy_portable_user_data_dirs(),
+        roaming_app_data() / "Claude-3p",
+        roaming_app_data() / "Claude",
+    ]
+
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for path in paths:
+        key = str(path).lower()
+        if key not in seen:
+            unique.append(path)
+            seen.add(key)
+    return unique
+
+
+def profile_tree_file_count(path: Path, limit: int = 200) -> int:
+    if not path.exists():
+        return 0
+    if path.is_file():
+        return 1
+
+    count = 0
+    try:
+        for _ in path.rglob("*"):
+            count += 1
+            if count >= limit:
+                return limit
+    except OSError:
+        return count
+    return count
+
+
+def portable_profile_score(data_dir: Path) -> int:
+    score = 0
+    for name in PORTABLE_USER_DATA_MIGRATION_ITEMS:
+        path = data_dir / name
+        if not path.exists():
+            continue
+        score += 2
+        score += min(profile_tree_file_count(path), 50)
+    return score
+
+
+def portable_profile_item_file_count(data_dir: Path, name: str) -> int:
+    path = data_dir / name
+    return profile_tree_file_count(path) if path.exists() else 0
+
+
+def portable_profile_has_richer_history(source_dir: Path, target_dir: Path) -> bool:
+    for name in PORTABLE_USER_DATA_PRIORITY_ITEMS:
+        if portable_profile_item_file_count(source_dir, name) > portable_profile_item_file_count(target_dir, name):
+            return True
+    return False
+
+
+def detect_profile_account_and_org(data_dir: Path) -> tuple[str | None, str | None]:
+    log_path = data_dir / "logs" / "main.log"
+    if log_path.exists():
+        try:
+            match_text = log_path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            match_text = ""
+        matches = ACCOUNT_REEVALUATE_RE.findall(match_text)
+        if matches:
+            org_id, account_id = matches[-1]
+            return account_id, org_id
+
+    sessions_root = data_dir / "local-agent-mode-sessions"
+    if not sessions_root.exists():
+        return None, None
+    for account_dir in sorted(sessions_root.iterdir(), key=lambda item: item.stat().st_mtime, reverse=True):
+        if not account_dir.is_dir() or account_dir.name == "skills-plugin":
+            continue
+        try:
+            org_dir = next(child for child in account_dir.iterdir() if child.is_dir())
+        except (StopIteration, OSError):
+            continue
+        return account_dir.name, org_dir.name
+    return None, None
+
+
+def windows_extended_path(path: Path | str) -> str:
+    value = os.path.abspath(str(path))
+    if value.startswith("\\\\?\\"):
+        return value
+    if value.startswith("\\\\"):
+        return "\\\\?\\UNC\\" + value.lstrip("\\")
+    return "\\\\?\\" + value
+
+
+def append_migration_error(errors: list[str], path: Path, exc: OSError | None = None) -> None:
+    if len(errors) >= PORTABLE_MIGRATION_ERROR_LIMIT:
+        return
+    message = str(path)
+    if exc:
+        message = f"{message}: {exc}"
+    errors.append(message)
+
+
+def copy_file_long_path(source: Path, target: Path, overwrite: bool) -> bool:
+    source_name = windows_extended_path(source)
+    target_name = windows_extended_path(target)
+    os.makedirs(windows_extended_path(target.parent), exist_ok=True)
+    if not overwrite and os.path.exists(target_name):
+        return False
+    shutil.copy2(source_name, target_name)
+    return True
+
+
+def copy_tree_long_path(
+    source: Path,
+    target: Path,
+    overwrite_files: bool,
+    errors: list[str] | None = None,
+) -> tuple[int, int]:
+    copied_files = 0
+    skipped_existing = 0
+    source_name = windows_extended_path(source)
+    target_name = windows_extended_path(target)
+
+    if os.path.isfile(source_name):
+        try:
+            copied = copy_file_long_path(source, target, overwrite_files)
+        except OSError as exc:
+            if errors is not None:
+                append_migration_error(errors, source, exc)
+            return copied_files, skipped_existing
+        if copied:
+            copied_files += 1
+        else:
+            skipped_existing += 1
+        return copied_files, skipped_existing
+
+    try:
+        os.makedirs(target_name, exist_ok=True)
+        with os.scandir(source_name) as entries:
+            for entry in entries:
+                child_source = source / entry.name
+                child_target = target / entry.name
+                if entry.is_dir(follow_symlinks=False):
+                    child_copied, child_skipped = copy_tree_long_path(
+                        child_source,
+                        child_target,
+                        overwrite_files,
+                        errors,
+                    )
+                    copied_files += child_copied
+                    skipped_existing += child_skipped
+                    continue
+                try:
+                    copied = copy_file_long_path(child_source, child_target, overwrite_files)
+                except OSError as exc:
+                    if errors is not None:
+                        append_migration_error(errors, child_source, exc)
+                    continue
+                if copied:
+                    copied_files += 1
+                else:
+                    skipped_existing += 1
+    except OSError as exc:
+        if errors is not None:
+            append_migration_error(errors, source, exc)
+        return copied_files, skipped_existing
+    return copied_files, skipped_existing
+
+
+def copy_tree_replace_if_needed(
+    source: Path,
+    target: Path,
+    errors: list[str] | None = None,
+) -> tuple[int, int]:
+    copied_files = 0
+    replaced_paths = 0
+    if not source.exists():
+        return copied_files, replaced_paths
+
+    if target.exists():
+        delete_if_exists(target)
+        replaced_paths += 1
+
+    if source.is_dir():
+        copied_files, _ = copy_tree_long_path(source, target, overwrite_files=True, errors=errors)
+        return copied_files, replaced_paths
+
+    try:
+        copy_file_long_path(source, target, overwrite=True)
+    except OSError as exc:
+        if errors is not None:
+            append_migration_error(errors, source, exc)
+        return copied_files, replaced_paths
+    return 1, replaced_paths
+
+
+def migrate_portable_account_namespace(
+    source_dir: Path,
+    target_dir: Path,
+    errors: list[str] | None = None,
+) -> None:
+    source_account, source_org = detect_profile_account_and_org(source_dir)
+    target_account, target_org = detect_profile_account_and_org(target_dir)
+    if not source_account or not source_org or not target_account or not target_org:
+        return
+    if source_account == target_account and source_org == target_org:
+        return
+
+    total_copied = 0
+    total_replaced = 0
+    migration_errors = errors if errors is not None else []
+    for item in PORTABLE_ACCOUNT_NAMESPACE_ITEMS:
+        source_root = source_dir / item
+        target_root = target_dir / item
+        copied, replaced = copy_tree_replace_if_needed(
+            source_root / source_account / source_org,
+            target_root / target_account / target_org,
+            errors=migration_errors,
+        )
+        total_copied += copied
+        total_replaced += replaced
+
+    copied, replaced = copy_tree_replace_if_needed(
+        source_dir / "local-agent-mode-sessions" / "skills-plugin" / source_org / source_account,
+        target_dir / "local-agent-mode-sessions" / "skills-plugin" / target_org / target_account,
+        errors=migration_errors,
+    )
+    total_copied += copied
+    total_replaced += replaced
+
+    if total_copied or total_replaced:
+        print(
+            "Portable account namespace migration checked: "
+            f"{source_account}/{source_org} -> {target_account}/{target_org} "
+            f"({total_copied} file(s) copied, {total_replaced} path(s) replaced)"
+        )
+    if errors is None and migration_errors:
+        print("Portable account namespace migration had copy errors:")
+        for message in migration_errors:
+            print(f"  - {message}")
+
+
+def copy_missing_tree(
+    source: Path,
+    target: Path,
+    errors: list[str] | None = None,
+) -> tuple[int, int]:
+    copied_files = 0
+    overwritten_files = 0
+    if not source.exists():
+        return copied_files, overwritten_files
+    return copy_tree_long_path(source, target, overwrite_files=False, errors=errors)
+
+
+def ensure_portable_user_data_migrated() -> None:
+    target_dir = portable_user_data_dir()
+    marker = target_dir / PORTABLE_USER_DATA_MIGRATION_MARKER
+    target_dir.mkdir(parents=True, exist_ok=True)
+    if marker.exists():
+        return
+
+    target_score = portable_profile_score(target_dir)
+    candidates: list[tuple[int, float, Path]] = []
+    for candidate in portable_user_data_migration_sources():
+        if not candidate.exists():
+            continue
+        if candidate.resolve() == target_dir.resolve():
+            continue
+        score = portable_profile_score(candidate)
+        if score <= 0:
+            continue
+        try:
+            mtime = candidate.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+        candidates.append((score, mtime, candidate))
+
+    selected_source: Path | None = None
+    selected_score = 0
+    if candidates:
+        selected_score, _, selected_source = max(candidates, key=lambda item: (item[0], item[1]))
+
+    copied_files = 0
+    skipped_existing = 0
+    migration_errors: list[str] = []
+    if selected_source and (selected_score > target_score or portable_profile_has_richer_history(selected_source, target_dir)):
+        for name in PORTABLE_USER_DATA_MIGRATION_ITEMS:
+            source_path = selected_source / name
+            if not source_path.exists():
+                continue
+            copied, skipped = copy_missing_tree(source_path, target_dir / name, errors=migration_errors)
+            copied_files += copied
+            skipped_existing += skipped
+        migrate_portable_account_namespace(selected_source, target_dir, errors=migration_errors)
+        print(
+            "Portable user data migration checked: "
+            f"{selected_source} -> {target_dir} "
+            f"({copied_files} file(s) copied, {skipped_existing} existing file(s) kept)"
+        )
+        if migration_errors:
+            print("Portable user data migration had copy errors:")
+            for message in migration_errors:
+                print(f"  - {message}")
+
+    if migration_errors:
+        print("Portable user data migration marker was not written because some files could not be copied.")
+        return
+
+    migration_note = {
+        "timestamp": dt.datetime.now().isoformat(timespec="seconds"),
+        "target": str(target_dir),
+        "targetScore": target_score,
+        "source": str(selected_source) if selected_source else None,
+        "sourceScore": selected_score,
+        "copiedFiles": copied_files,
+        "keptExistingFiles": skipped_existing,
+        "copyErrors": len(migration_errors),
+    }
+    save_json(marker, migration_note)
 
 
 def third_party_data_paths() -> list[Path]:
@@ -451,23 +812,84 @@ def create_launcher(target_dir: Path) -> Path:
     if not exe:
         raise SystemExit(f"Cannot find patched Claude.exe in: {target_dir}")
 
+    ensure_portable_user_data_migrated()
     launcher = launcher_path()
     launcher.parent.mkdir(parents=True, exist_ok=True)
-    portable_user_data_dir().mkdir(parents=True, exist_ok=True)
     exe_path = str(exe).replace('"', '""')
     working_dir = str(exe.parent).replace('"', '""')
     svc_path = str(exe.parent / "resources" / "cowork-svc.exe").replace('"', '""')
     user_data_dir = str(portable_user_data_dir()).replace('"', '""')
+    portable_svc_marker = "/claudezhcn/claude/resources/cowork-svc.exe"
     content = f'''Set shell = CreateObject("WScript.Shell")
 Set env = shell.Environment("PROCESS")
 env("{COWORK_PORTABLE_ENV}") = "1"
 shell.CurrentDirectory = "{working_dir}"
 Set fso = CreateObject("Scripting.FileSystemObject")
+Set wmi = GetObject("winmgmts:\\\\.\\root\\cimv2")
 q = Chr(34)
 exePath = "{exe_path}"
 svcPath = "{svc_path}"
 userDataDir = "{user_data_dir}"
 pipePath = "\\\\.\\pipe\\{COWORK_PORTABLE_PIPE_NAME}"
+' Clean stale residue without disturbing an active official UI.
+On Error Resume Next
+
+Function HasMatchingProcess(procName, pathNeedle)
+  HasMatchingProcess = False
+  For Each proc In wmi.ExecQuery("SELECT * FROM Win32_Process WHERE Name = '" & procName & "'")
+    procPath = ""
+    On Error Resume Next
+    procPath = LCase(Replace(proc.ExecutablePath, "\\", "/"))
+    On Error GoTo 0
+    If procPath <> "" And InStr(procPath, pathNeedle) > 0 Then
+      HasMatchingProcess = True
+      Exit Function
+    End If
+  Next
+End Function
+
+Sub KillMatchingProcesses(procName, pathNeedle)
+  For Each proc In wmi.ExecQuery("SELECT * FROM Win32_Process WHERE Name = '" & procName & "'")
+    procPath = ""
+    On Error Resume Next
+    procPath = LCase(Replace(proc.ExecutablePath, "\\", "/"))
+    If procPath <> "" And InStr(procPath, pathNeedle) > 0 Then
+      proc.Terminate
+    End If
+    On Error GoTo 0
+  Next
+End Sub
+
+Sub KillHcsByPrefix(prefix)
+  tempPath = env("TEMP") & "\\claudezhcn-hcsdiag-" & Replace(Replace(Replace(CStr(Timer), ".", "-"), " ", ""), ":", "") & ".txt"
+  shell.Run "cmd.exe /d /c hcsdiag.exe list > " & q & tempPath & q, 0, True
+  hcsList = ""
+  If fso.FileExists(tempPath) Then
+    On Error Resume Next
+    Set tempFile = fso.OpenTextFile(tempPath, 1, False)
+    hcsList = tempFile.ReadAll()
+    tempFile.Close
+    fso.DeleteFile tempPath, True
+    On Error GoTo 0
+  End If
+  For Each hcsLine In Split(hcsList, vbLf)
+    hcsLine = Trim(hcsLine)
+    If LCase(Left(hcsLine, Len(prefix))) = prefix Then
+      shell.Run "cmd.exe /d /c hcsdiag.exe kill " & hcsLine, 0, True
+    End If
+  Next
+End Sub
+
+officialUiRunning = HasMatchingProcess("claude.exe", "/windowsapps/claude_")
+KillMatchingProcesses "cowork-svc.exe", "{portable_svc_marker}"
+WScript.Sleep 750
+KillHcsByPrefix "ccdesk-vm-"
+If Not officialUiRunning Then
+  KillMatchingProcesses "cowork-svc.exe", "/windowsapps/claude_"
+  WScript.Sleep 750
+  KillHcsByPrefix "cowork-vm-"
+End If
+On Error GoTo 0
 If fso.FileExists(svcPath) Then
   If Not fso.FileExists(pipePath) Then
     On Error Resume Next
@@ -571,10 +993,13 @@ def create_shortcuts(target_dir: Path, dry_run: bool = False) -> int:
 def delete_if_exists(path: Path) -> bool:
     if not path.exists():
         return False
-    if path.is_dir():
-        shutil.rmtree(path)
-    else:
-        path.unlink()
+    try:
+        if path.is_dir():
+            shutil.rmtree(path, ignore_errors=True)
+        else:
+            path.unlink()
+    except FileNotFoundError:
+        return False
     return True
 
 
@@ -2222,6 +2647,135 @@ def apply_cowork_compat(app_dir: Path, dry_run: bool = False) -> int:
     return 0
 
 
+def cleanup_cowork_residue(target: str | None = None) -> int:
+    force_official_cleanup = "$true" if target == "portable" else "$false"
+    force_portable_cleanup = "$true" if target == "official" else "$false"
+    target_label = target or "safe"
+    script = r"""
+$ErrorActionPreference = 'Stop'
+
+$officialClaudePattern = 'C:\Program Files\WindowsApps\Claude_*\app\Claude.exe'
+$officialSvcPattern = 'C:\Program Files\WindowsApps\Claude_*\app\resources\cowork-svc.exe'
+$portableClaudePath = Join-Path $env:LOCALAPPDATA 'ClaudeZhCN\Claude\Claude.exe'
+$portableSvcPath = Join-Path $env:LOCALAPPDATA 'ClaudeZhCN\Claude\resources\cowork-svc.exe'
+$forceOfficialCleanup = __FORCE_OFFICIAL_CLEANUP__
+$forcePortableCleanup = __FORCE_PORTABLE_CLEANUP__
+
+$officialRunning = @(Get-Process | Where-Object { $_.Path -like $officialClaudePattern })
+$portableClaudes = @(Get-Process | Where-Object { $_.Path -eq $portableClaudePath })
+$portableSvcs = @(Get-Process | Where-Object { $_.Path -eq $portableSvcPath })
+$officialSvcs = @(Get-Process | Where-Object { $_.Path -like $officialSvcPattern })
+
+function Kill-HcsByPrefix([string]$prefix) {
+  for ($attempt = 0; $attempt -lt 3; $attempt++) {
+    $hcs = & hcsdiag.exe list
+    $matched = $false
+    foreach ($line in $hcs) {
+      $name = $line.Trim()
+      if ($name -like ($prefix + '*')) {
+        $matched = $true
+        & hcsdiag.exe kill $name | Out-Null
+      }
+    }
+    if (-not $matched) {
+      break
+    }
+    Start-Sleep -Milliseconds 750
+  }
+}
+
+if ($forcePortableCleanup) {
+  foreach ($proc in $portableClaudes) {
+    Stop-Process -Id $proc.Id -Force
+  }
+}
+
+foreach ($proc in $portableSvcs) {
+  Stop-Process -Id $proc.Id -Force
+}
+
+Kill-HcsByPrefix 'ccdesk-vm-'
+
+if ($forceOfficialCleanup) {
+  foreach ($proc in $officialRunning) {
+    Stop-Process -Id $proc.Id -Force
+  }
+}
+
+if ($forceOfficialCleanup -or $officialRunning.Count -eq 0) {
+  foreach ($proc in $officialSvcs) {
+    Stop-Process -Id $proc.Id -Force
+  }
+  Start-Sleep -Milliseconds 750
+  Kill-HcsByPrefix 'cowork-vm-'
+}
+"""
+    script = script.replace("__FORCE_OFFICIAL_CLEANUP__", force_official_cleanup)
+    script = script.replace("__FORCE_PORTABLE_CLEANUP__", force_portable_cleanup)
+    result = run(
+        [powershell_exe(), "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+        check=False,
+    )
+    if result.returncode != 0:
+        raise SystemExit(result.stdout.strip() or "Could not clean Cowork residue.")
+    print(f"Cleaned stale Cowork residue ({target_label} mode).")
+    return 0
+
+
+def sync_bundle_cache(src_bundle: Path, dst_bundle: Path) -> int:
+    copied = 0
+    names = [
+        "rootfs.vhdx.zst",
+        "initrd.zst",
+        "vmlinuz.zst",
+        ".rootfs.vhdx.zst.origin",
+        ".initrd.zst.origin",
+        ".vmlinuz.zst.origin",
+    ]
+    if not src_bundle.exists():
+        return 0
+    dst_bundle.mkdir(parents=True, exist_ok=True)
+    for name in names:
+        src = src_bundle / name
+        dst = dst_bundle / name
+        if not src.exists():
+            continue
+        needs_copy = not dst.exists()
+        if dst.exists():
+            try:
+                needs_copy = src.stat().st_size != dst.stat().st_size or file_sha256(src) != file_sha256(dst)
+            except OSError:
+                needs_copy = True
+        if needs_copy:
+            shutil.copy2(src, dst)
+            copied += 1
+    return copied
+
+
+def prepare_cowork_switch(target: str) -> int:
+    cleanup_cowork_residue(target)
+    if target == "portable":
+        src_candidates = [
+            roaming_app_data() / "Claude-3p" / "vm_bundles" / "claudevm.bundle",
+            local_app_data() / "Packages" / "Claude_pzs8sxrjxfjjc" / "LocalCache" / "Roaming" / "Claude-3p" / "vm_bundles" / "claudevm.bundle",
+        ]
+        src_bundle = next((candidate for candidate in src_candidates if candidate.exists()), src_candidates[0])
+        dst_bundle = portable_user_data_dir() / "vm_bundles" / "claudevm.bundle"
+        copied = sync_bundle_cache(src_bundle, dst_bundle)
+        app_dir = default_target_dir()
+        if app_dir.exists():
+            create_launcher(app_dir)
+        print(f"Prepared Cowork switch for portable zh-CN Claude ({copied} cache file(s) synced).")
+        return 0
+
+    if target == "official":
+        sync_msix_cowork_compat(False)
+        print("Prepared Cowork switch for official Claude MSIX.")
+        return 0
+
+    raise SystemExit(f"Unknown Cowork switch target: {target}")
+
+
 def sync_msix_cowork_compat(dry_run: bool = False) -> int:
     packages_dir = local_app_data() / "Packages"
     if not packages_dir.exists():
@@ -2505,6 +3059,8 @@ def main() -> int:
     parser.add_argument("--third-party-wizard", action="store_true", help="Open the third-party model inference config wizard")
     parser.add_argument("--apply-third-party-inference", action="store_true", help="Generate Desktop gateway config from Claude Code settings")
     parser.add_argument("--apply-cowork-compat", action="store_true", help="Patch portable Claude so Cowork can coexist with the official MSIX version")
+    parser.add_argument("--cleanup-cowork-residue", action="store_true", help="Clean stale Cowork helper processes and HCS VMs without touching an active official UI")
+    parser.add_argument("--prepare-cowork-switch", choices=["portable", "official"], help="Prepare a clean Cowork switch target before launching that side")
     parser.add_argument("--sync-msix-cowork", action="store_true", help="Advanced: repair official MSIX Cowork sandbox data after portable usage")
     parser.add_argument("--patch-desktop-menu", action="store_true", help="Patch hardcoded desktop menu strings into zh-CN")
     parser.add_argument("--apply-locale", action="store_true", help="Apply zh-CN locale resources to the patched copy without reinstalling")
@@ -2532,6 +3088,10 @@ def main() -> int:
         return apply_third_party_inference_config(False)
     if args.apply_cowork_compat:
         return apply_cowork_compat(args.target_dir, args.dry_run)
+    if args.cleanup_cowork_residue:
+        return cleanup_cowork_residue()
+    if args.prepare_cowork_switch:
+        return prepare_cowork_switch(args.prepare_cowork_switch)
     if args.sync_msix_cowork:
         return sync_msix_cowork_compat(args.dry_run)
     if args.patch_desktop_menu:

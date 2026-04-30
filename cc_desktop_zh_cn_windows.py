@@ -22,6 +22,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import struct
 import subprocess
 import sys
@@ -131,6 +132,14 @@ def launcher_path() -> Path:
 
 def portable_user_data_dir() -> Path:
     return roaming_app_data() / "ClaudeZhCN-3p"
+
+
+def legacy_third_party_roaming_dir() -> Path:
+    return roaming_app_data() / "Claude-3p"
+
+
+def legacy_third_party_local_dir() -> Path:
+    return local_app_data() / "Claude-3p"
 
 
 def legacy_portable_user_data_dirs() -> list[Path]:
@@ -652,11 +661,61 @@ def ensure_portable_user_data_migrated() -> None:
     save_json(marker, migration_note)
 
 
+def ensure_legacy_third_party_bridge() -> None:
+    roaming_dir = legacy_third_party_roaming_dir()
+    local_dir = legacy_third_party_local_dir()
+
+    if roaming_dir.exists():
+        if is_reparse_point(roaming_dir):
+            replace_reparse_point_with_real_dir(roaming_dir, local_dir)
+            return
+        if local_dir.exists():
+            populate_legacy_third_party_dir(roaming_dir, local_dir)
+        return
+    if not local_dir.exists():
+        return
+
+    roaming_dir.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        roaming_dir.mkdir(parents=True, exist_ok=True)
+        populate_legacy_third_party_dir(roaming_dir, local_dir)
+        print(f"Prepared legacy third-party data directory: {roaming_dir}")
+    except OSError as exc:
+        print(f"Warning: could not prepare legacy third-party data directory {roaming_dir}: {exc}")
+
+
+def is_reparse_point(path: Path) -> bool:
+    try:
+        return bool(path.lstat().st_file_attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+    except AttributeError:
+        return path.is_symlink()
+    except OSError:
+        return False
+
+
+def replace_reparse_point_with_real_dir(roaming_dir: Path, local_dir: Path) -> None:
+    if not local_dir.exists():
+        print(f"Warning: legacy data source is missing, cannot replace reparse point: {local_dir}")
+        return
+
+    result = run(["cmd.exe", "/d", "/c", "rmdir", str(roaming_dir)], check=False)
+    if result.returncode != 0:
+        print(f"Warning: could not remove legacy data reparse point {roaming_dir}: {result.stdout.strip()}")
+        return
+
+    try:
+        roaming_dir.mkdir(parents=True, exist_ok=True)
+        populate_legacy_third_party_dir(roaming_dir, local_dir)
+        print(f"Replaced legacy third-party data reparse point with real directory: {roaming_dir}")
+    except OSError as exc:
+        print(f"Warning: could not replace legacy data reparse point {roaming_dir}: {exc}")
+
+
 def third_party_data_paths() -> list[Path]:
     paths = [
         portable_user_data_dir(),
         *legacy_portable_user_data_dirs(),
-        roaming_app_data() / "Claude-3p",
+        legacy_third_party_roaming_dir(),
     ]
 
     packages = local_app_data() / "Packages"
@@ -813,6 +872,7 @@ def create_launcher(target_dir: Path) -> Path:
         raise SystemExit(f"Cannot find patched Claude.exe in: {target_dir}")
 
     ensure_portable_user_data_migrated()
+    ensure_legacy_third_party_bridge()
     launcher = launcher_path()
     launcher.parent.mkdir(parents=True, exist_ok=True)
     exe_path = str(exe).replace('"', '""')
@@ -2752,20 +2812,103 @@ def sync_bundle_cache(src_bundle: Path, dst_bundle: Path) -> int:
     return copied
 
 
+def sync_bundle_runtime_files(src_bundle: Path, dst_bundle: Path) -> int:
+    copied = 0
+    names = [
+        "rootfs.vhdx",
+        "initrd",
+        "vmlinuz",
+        "smol-bin.vhdx",
+        "sessiondata.vhdx",
+        ".rootfs.vhdx.origin",
+        ".initrd.origin",
+        ".vmlinuz.origin",
+        ".auto_reinstall_attempted",
+    ]
+    if not src_bundle.exists():
+        return 0
+    dst_bundle.mkdir(parents=True, exist_ok=True)
+    for name in names:
+        src = src_bundle / name
+        dst = dst_bundle / name
+        if not src.exists():
+            continue
+        needs_copy = not dst.exists()
+        if dst.exists():
+            needs_copy = should_copy_runtime_file(src, dst)
+        if needs_copy:
+            shutil.copy2(src, dst)
+            copied += 1
+    return copied
+
+
+def should_copy_runtime_file(src: Path, dst: Path) -> bool:
+    try:
+        src_stat = src.stat()
+        dst_stat = dst.stat()
+    except OSError:
+        return True
+
+    if src_stat.st_size != dst_stat.st_size:
+        return True
+
+    # Avoid hashing multi-GB VHDX files during menu-driven repair checks.
+    if src_stat.st_size >= 128 * 1024 * 1024:
+        return False
+
+    try:
+        return file_sha256(src) != file_sha256(dst)
+    except OSError:
+        return True
+
+
+def populate_legacy_third_party_dir(roaming_dir: Path, local_dir: Path) -> None:
+    for name in ["logs", "vm_bundles", "configLibrary"]:
+        (roaming_dir / name).mkdir(parents=True, exist_ok=True)
+
+    bundle_src = local_dir / "vm_bundles" / "claudevm.bundle"
+    bundle_dst = roaming_dir / "vm_bundles" / "claudevm.bundle"
+    copied = sync_bundle_cache(
+        local_dir / "vm_bundles" / "claudevm.bundle",
+        roaming_dir / "vm_bundles" / "claudevm.bundle",
+    )
+    copied += sync_bundle_runtime_files(bundle_src, bundle_dst)
+
+    config_src = local_dir / "configLibrary"
+    config_dst = roaming_dir / "configLibrary"
+    if config_src.exists():
+        for source in sorted(config_src.glob("*.json")):
+            target = config_dst / source.name
+            if target.exists():
+                continue
+            shutil.copy2(source, target)
+
+    if copied:
+        print(f"Synced {copied} legacy VM cache file(s) into {roaming_dir}")
+
+
 def prepare_cowork_switch(target: str) -> int:
     cleanup_cowork_residue(target)
     if target == "portable":
         src_candidates = [
+            legacy_third_party_local_dir() / "vm_bundles" / "claudevm.bundle",
             roaming_app_data() / "Claude-3p" / "vm_bundles" / "claudevm.bundle",
             local_app_data() / "Packages" / "Claude_pzs8sxrjxfjjc" / "LocalCache" / "Roaming" / "Claude-3p" / "vm_bundles" / "claudevm.bundle",
         ]
         src_bundle = next((candidate for candidate in src_candidates if candidate.exists()), src_candidates[0])
         dst_bundle = portable_user_data_dir() / "vm_bundles" / "claudevm.bundle"
         copied = sync_bundle_cache(src_bundle, dst_bundle)
+        runtime_copied = sync_bundle_runtime_files(
+            src_bundle,
+            legacy_third_party_roaming_dir() / "vm_bundles" / "claudevm.bundle",
+        )
         app_dir = default_target_dir()
         if app_dir.exists():
             create_launcher(app_dir)
-        print(f"Prepared Cowork switch for portable zh-CN Claude ({copied} cache file(s) synced).")
+        print(
+            "Prepared Cowork environment for portable zh-CN Claude "
+            f"({copied} cache file(s), {runtime_copied} runtime file(s) synced)."
+        )
         return 0
 
     if target == "official":
@@ -2930,6 +3073,7 @@ def enable_developer_mode(dry_run: bool) -> None:
 
 
 def apply_user_settings(target_dir: Path) -> int:
+    ensure_legacy_third_party_bridge()
     set_user_locale(False)
     enable_developer_mode(False)
     apply_locale_resources(target_dir, False)

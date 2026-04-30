@@ -140,9 +140,9 @@ while ($true) {
   Write-Host "6. 创建 Claude 和 Claude Code 快捷方式"
   Write-Host "7. 完全清理绿色版文件"
   Write-Host "8. 第三方大模型推理配置向导"
-  Write-Host "9. 应用 Cowork 兼容修复"
+  Write-Host "9. 重新应用 Cowork 补丁并重建启动器"
   Write-Host "10. 修复官方 Claude MSIX Cowork 沙箱（高级）"
-  Write-Host "11. 准备干净的 Cowork 切换"
+  Write-Host "11. 修复 / 准备 Cowork 环境"
   Write-Host "0. 退出"
   Write-Host ""
 
@@ -255,9 +255,10 @@ while ($true) {
 
   if ($Choice -eq "11") {
     Write-Host ""
-    Write-Host "1. 准备切换到中文绿色版 Claude" -ForegroundColor Cyan
-    Write-Host "2. 准备切换到官方 Claude MSIX" -ForegroundColor Cyan
-    $Target = Read-Host "请选择切换目标"
+    Write-Host "这个工具用于清理残留 Cowork 进程/VM，并为目标环境补齐必要文件。" -ForegroundColor Yellow
+    Write-Host "1. 修复 / 准备中文绿色版 Claude" -ForegroundColor Cyan
+    Write-Host "2. 修复 / 准备官方 Claude MSIX" -ForegroundColor Cyan
+    $Target = Read-Host "请选择目标环境"
     if ($Target -eq "1") {
       Run-Patcher @("--prepare-cowork-switch", "portable")
     } elseif ($Target -eq "2") {

@@ -140,9 +140,9 @@ while ($true) {
   Write-Host "6. Create Claude and Claude Code shortcuts"
   Write-Host "7. Full clean portable zh-CN tool files"
   Write-Host "8. Third-party model inference config wizard"
-  Write-Host "9. Apply Cowork compatibility fix"
+  Write-Host "9. Reapply Cowork patch and rebuild launcher"
   Write-Host "10. Repair official Claude MSIX Cowork sandbox (advanced)"
-  Write-Host "11. Prepare clean Cowork switch"
+  Write-Host "11. Repair / prepare Cowork environment"
   Write-Host "0. Exit"
   Write-Host ""
 
@@ -255,9 +255,10 @@ while ($true) {
 
   if ($Choice -eq "11") {
     Write-Host ""
-    Write-Host "1. Prepare switch to portable zh-CN Claude" -ForegroundColor Cyan
-    Write-Host "2. Prepare switch to official Claude MSIX" -ForegroundColor Cyan
-    $Target = Read-Host "Choose switch target"
+    Write-Host "This tool cleans stale Cowork processes/VMs and syncs required files for the target environment." -ForegroundColor Yellow
+    Write-Host "1. Repair / prepare portable zh-CN Claude" -ForegroundColor Cyan
+    Write-Host "2. Repair / prepare official Claude MSIX" -ForegroundColor Cyan
+    $Target = Read-Host "Choose target environment"
     if ($Target -eq "1") {
       Run-Patcher @("--prepare-cowork-switch", "portable")
     } elseif ($Target -eq "2") {

@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.2.5 - 2026-05-01
+
+### Fixed
+
+- 修复 Claude Desktop 1.5354.0 下新版 Cowork 子进程 / VM runtime 会在 `%LOCALAPPDATA%\Claude-3p` 解压和启动，但 VM 配置阶段要求 `%APPDATA%\Claude-3p` 必须是真实目录的问题；工具现在会将旧 junction / symlink 自动替换为真实目录。
+- 修复新版中文绿色版 VM 配置阶段可能找不到 `rootfs.vhdx` 的问题；工具会从 `%LOCALAPPDATA%\Claude-3p` 补齐 `%APPDATA%\Claude-3p\vm_bundles\claudevm.bundle` 所需的完整 runtime bundle。
+- 优化 Cowork 修复流程，避免菜单 `11` 每次对多 GB 的 VHDX 文件计算 SHA256。
+
+### Changed
+
+- 菜单 `9` 改名为“重新应用 Cowork 补丁并重建启动器”，明确它用于程序补丁和启动器重建。
+- 菜单 `11` 改名为“修复 / 准备 Cowork 环境”，明确它用于残留清理和 VM 运行环境修复，不是日常启动前必需步骤。
+- 菜单 `1` / `5` / `9` 现在会顺手确保新版 Cowork 所需的 `%APPDATA%\Claude-3p` 真实目录和 VM bundle 状态。
+
 ## v0.2.4 - 2026-04-29
 
 ### Compatibility note

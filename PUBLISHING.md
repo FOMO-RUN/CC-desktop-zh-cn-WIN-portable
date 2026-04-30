@@ -70,6 +70,24 @@ if ($errors.Count -gt 0) { $errors | Format-List *; exit 1 }
 if ($errors.Count -gt 0) { $errors | Format-List *; exit 1 }
 ```
 
+To generate release assets similar to the GitHub release screenshot, run:
+
+```powershell
+.\build_release_assets.ps1
+```
+
+This creates:
+
+- `WIN-CC-Desktop-zh-CN-Portable-v<version>.zip`
+- `WIN-CC-Desktop-zh-CN-Portable-v<version>.zip.sha256`
+
+The version is inferred from the first heading in `CHANGELOG.md`, or you can
+override it with:
+
+```powershell
+.\build_release_assets.ps1 -Version 0.2.5
+```
+
 Make sure these are not committed:
 
 - Official installers or MSIX files.

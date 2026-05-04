@@ -1,7 +1,7 @@
 # WIN CC Desktop zh-CN Portable
 
-> 中文绿色版和官方英文 MSIX 版虽然已经做了 Cowork VM 命名空间隔离，但两边仍然共用同一套 Windows HCS / Hyper-V / VM 服务状态。
-> 当前版本会在菜单 `1` / `5` / `9` 和启动器重建时自动准备新版 Cowork 所需目录；菜单 `11` 主要作为残留清理和环境修复入口。
+> 推荐把 `Claude zh-CN` 作为日常主入口。官方英文 MSIX 版保留为安装来源和备用入口，不建议与中文版同时运行。
+> 中文绿色版和官方英文 MSIX 版虽然已经做了 Cowork VM 命名空间隔离，但两边仍然共用同一套用户数据目录、Windows HCS / Hyper-V / VM 服务状态和部分 `%LOCALAPPDATA%\Claude-3p` 运行时缓存。当前启动器会在检测到官方英文版正在运行时提示先关闭官方版。
 
 一键生成可与官方安装版共存的中文绿色版 CC Desktop。
 
@@ -17,7 +17,7 @@
 - 中文化体验：合并前端中文资源，并补丁处理部分硬编码菜单、设置页、Code[代码] / Cowork[协作] 文案。
 - 配置选择权：第三方大模型推理配置向导可以保持全新，也可以同步 Claude Desktop 或 Claude Code 的已有配置。
 - 可跳过登录模式选择：导入或生成配置后，工具会启用 `disableDeploymentModeChooser`，直接进入第三方大模型推理模式。
-- 原版共存：开始菜单里的原版 Claude 仍然是英文官方版，`Claude zh-CN` 快捷方式启动的是中文绿色版，并使用独立的 `%APPDATA%\ClaudeZhCN-3p` 用户数据目录避免单实例冲突。
+- 主用中文版：`Claude zh-CN` 快捷方式启动中文绿色版，并使用 `%APPDATA%\Claude-3p` 作为主用户数据目录；官方英文 MSIX 版建议只作为安装来源和备用入口，不建议同一时间运行两个入口。
 - Code[代码] / Cowork[协作] 共存：修复绿色版路径检测，并隔离 Cowork VM 的管道、网络和存储命名空间，降低与官方 MSIX 版同时运行时的冲突。
 - 快捷方式自动创建：首次汉化或更新后自动创建 `Claude zh-CN` 和 `Claude Code` 的桌面 / 开始菜单快捷方式。
 - 更新友好：版本相同则跳过下载；官方下载接口异常时会回退到本机已安装 Claude。
@@ -33,11 +33,19 @@ flowchart TD
     C --> D["合并 frontend / desktop / statsig 中文资源"]
     D --> E["补丁硬编码文案和桌面菜单"]
     E --> F["修复 Code[代码] / Cowork[协作] 绿色版检测与 VM 命名空间"]
-    F --> J["使用 %APPDATA%\\ClaudeZhCN-3p 独立用户数据"]
+    F --> J["主用 %APPDATA%\\Claude-3p 用户数据"]
     F --> G["创建 Claude zh-CN 快捷方式"]
     F --> H["创建 Claude Code 快捷方式"]
     A -.-> I["原版 Claude Desktop 继续保留，不修改官方安装"]
 ```
+
+## 当前使用取舍
+
+本项目现在按“主用中文版、官方版备用”的方式优化。这样做的原因是新版 Cowork / VM 运行时本身会使用 `%LOCALAPPDATA%\Claude-3p`，VM bundle 也需要 `%APPDATA%\Claude-3p\vm_bundles` 参与配置；继续维护一份独立的 `%APPDATA%\ClaudeZhCN-3p` 会让账号、会话、skills、第三方推理配置和 Cowork 空间分散在两套目录里，日常使用更容易出现“这边有、那边没有”的割裂。
+
+因此当前版本把中文绿色版的启动器指向 `%APPDATA%\Claude-3p`，并把旧 `%APPDATA%\ClaudeZhCN-3p` 作为迁移来源。这样中文版更新时只替换 `%LOCALAPPDATA%\ClaudeZhCN\Claude` 程序副本，不迁移或重建用户数据。
+
+这不是“中英文同时公用并行运行”方案。中英文入口会共享用户数据、日志、VM bundle 和部分 HCS / Hyper-V 状态，不能保证同时打开时互不影响。日常建议只启动 `Claude zh-CN`；确实需要打开官方英文版时，请先完全退出中文版。
 
 第三方大模型推理配置默认不会强行导入，用户自己选择：
 
@@ -92,8 +100,8 @@ cd C:\Users\TC\Downloads\claude-desktop-zh-cn-main
 
 这通常不是数据真的丢失，而是因为旧版和当前版使用的用户数据路径与账号命名空间不同：
 
-- 旧数据常见于 `%APPDATA%\Claude-3p`
-- 当前中文版使用 `%APPDATA%\ClaudeZhCN-3p`
+- 旧版中文独立数据常见于 `%APPDATA%\ClaudeZhCN-3p`
+- 当前中文版主用 `%APPDATA%\Claude-3p`
 - 旧版活跃账号目录与当前中文版账号目录也可能不同
 
 当前版本的菜单 `1` / 启动器已经内置自动迁移与修复逻辑，会：
@@ -161,8 +169,8 @@ cd C:\Users\TC\Downloads\claude-desktop-zh-cn-main
 ```text
 1. Patch / update / launch zh-CN Claude
 2. Check latest version
-3. Locate user config/account data
-4. Clean user config/account data
+3. Locate primary zh-CN user config/account data
+4. Clean primary zh-CN user config/account data
 5. Launch patched Claude
 6. Create Claude and Claude Code shortcuts
 7. Full clean portable zh-CN tool files
@@ -179,8 +187,8 @@ cd C:\Users\TC\Downloads\claude-desktop-zh-cn-main
 ```text
 1. 汉化 / 更新 / 启动汉化版
 2. 检查版本更新
-3. 定位用户配置/账号数据
-4. 清理用户配置/账号数据
+3. 定位中文版主用户配置/账号数据
+4. 清理中文版主用户配置/账号数据
 5. 启动汉化版 Claude
 6. 创建 Claude 和 Claude Code 快捷方式
 7. 完全清理绿色版文件
@@ -306,7 +314,7 @@ cowork-vm-nat     -> ccdesk-vm-nat
 cowork-vm-store   -> ccdesk-vm-store
 ```
 
-这会同时处理 `app.asar` 和 `resources\cowork-svc.exe`，并重建启动器。启动 `Claude zh-CN` 快捷方式时，启动器会先启动绿色版自己的 `cowork-svc.exe`，等待 `\\.\pipe\ccdesk-vm-service` 就绪后，再用 `--user-data-dir=%APPDATA%\ClaudeZhCN-3p` 打开 Claude。这样官方版已打开时，中文绿色版也不会被 Electron 单实例锁转交给官方窗口。
+这会同时处理 `app.asar` 和 `resources\cowork-svc.exe`，并重建启动器。启动 `Claude zh-CN` 快捷方式时，启动器会先启动绿色版自己的 `cowork-svc.exe`，等待 `\\.\pipe\ccdesk-vm-service` 就绪后，再用 `--user-data-dir=%APPDATA%\Claude-3p` 打开 Claude。该目录现在作为中文版主数据目录；官方英文版仅建议作为备用入口，关闭中文版后再启动。
 
 修复时会备份：
 
@@ -318,7 +326,7 @@ cowork-vm-store   -> ccdesk-vm-store
 %LOCALAPPDATA%\ClaudeZhCN\Claude\Claude.exe.bak-before-cowork-namespace-*
 ```
 
-请通过桌面或开始菜单中的 `Claude zh-CN` 快捷方式启动。不要直接双击绿色副本里的 `Claude.exe`，否则可能绕过启动器环境变量和独立用户数据参数。
+请通过桌面或开始菜单中的 `Claude zh-CN` 快捷方式启动。不要直接双击绿色副本里的 `Claude.exe`，否则可能绕过启动器环境变量和共用用户数据参数。
 
 菜单 `10` 是高级修复项，只用于官方 MSIX 版在使用绿色版后出现 Cowork 启动失败的情况。它会尝试启动官方 `CoworkVMService`，并把绿色版生成的 `smol-bin.vhdx` 同步到官方 MSIX 沙箱目录。默认汉化 / 更新流程不会自动触碰官方版沙箱数据。
 

@@ -7,11 +7,14 @@
 - 同步 `personal` 分支里已经验证过的代码修复，保持两条分支的补丁逻辑一致。
 - 菜单 `1` 调整为“本地 `Claude.msix` 优先，在线检查回退”流程，适配企业网络下官方更新接口常见的 `403` / Cloudflare challenge 场景。
 - 菜单新增 `12. 使用本地 Claude.msix 更新中文版 / Update zh-CN Claude from local Claude.msix`，显式提供手动本地包更新入口。
+- 明确当前推荐使用方式为“主用中文版，官方英文版仅作为安装来源和备用入口”；原因是新版 Cowork / VM 会使用 `%LOCALAPPDATA%\Claude-3p` 与 `%APPDATA%\Claude-3p\vm_bundles`，继续维护独立 `%APPDATA%\ClaudeZhCN-3p` 会造成账号、会话、skills、第三方推理配置和 Cowork 空间分散。
+- `--show-user-data` 默认只显示存在的路径；新增 `--show-missing-user-data` 用于排查旧中文目录、官方目录和 MSIX 沙箱候选路径。
 
 ### Added
 
 - 新增本地 `MSIX` 版本比较能力：可直接比较本地 `Claude.msix` 与当前中文绿色版版本，避免只依赖在线版本检查。
 - README 补充最新版下载跳转地址与官方发布说明页面，方便在浏览器里手动获取最新版安装包。
+- 中文启动器在检测到官方英文 MSIX 版已运行时会提示先关闭官方版，避免两个入口共用 `%APPDATA%\Claude-3p` 时触发 Electron 单实例转交或写入冲突。
 
 ## v0.2.5 - 2026-05-01
 
@@ -19,6 +22,7 @@
 
 - 修复 Claude Desktop 1.5354.0 下新版 Cowork 子进程 / VM runtime 会在 `%LOCALAPPDATA%\Claude-3p` 解压和启动，但 VM 配置阶段要求 `%APPDATA%\Claude-3p` 必须是真实目录的问题；工具现在会将旧 junction / symlink 自动替换为真实目录。
 - 修复新版中文绿色版 VM 配置阶段可能找不到 `rootfs.vhdx` 的问题；工具会从 `%LOCALAPPDATA%\Claude-3p` 补齐 `%APPDATA%\Claude-3p\vm_bundles\claudevm.bundle` 所需的完整 runtime bundle。
+- 中文绿色版启动器改为主用 `%APPDATA%\Claude-3p` 用户数据目录；旧 `%APPDATA%\ClaudeZhCN-3p` 会作为迁移来源，不再作为默认运行目录。
 - 优化 Cowork 修复流程，避免菜单 `11` 每次对多 GB 的 VHDX 文件计算 SHA256。
 
 ### Changed
@@ -50,7 +54,7 @@
 
 - 绿色版启动器现在只会清理自己的 `ccdesk-vm-*` 残留；只有在官方英文界面未运行时，才会顺手清理官方侧 `cowork-vm-*` 残留，降低互相误伤的概率。
 - `prepare-cowork-switch` 采用按目标切换的清理策略：切到中文时强制收敛官方侧残留，切到官方时强制收敛中文侧残留，便于手动切换验证。
-- 菜单 `1` / 中文启动器现在会自动检查并迁移旧版 `Claude-3p` / 英文版历史数据到 `%APPDATA%\ClaudeZhCN-3p`，减少旧会话、skills、Cowork 项目空间看起来“消失”的情况。
+- 菜单 `1` / 中文启动器现在会自动检查并迁移旧版中文独立目录、英文版历史数据到 `%APPDATA%\Claude-3p`，减少旧会话、skills、Cowork 项目空间看起来“消失”的情况。
 
 ### Notes
 
@@ -62,13 +66,13 @@
 
 ### Fixed
 
-- 启动器现在使用独立的 `%APPDATA%\ClaudeZhCN-3p` 用户数据目录，避免官方 Claude 已打开时，中文绿色版被 Electron 单实例锁转交给官方窗口。
+- 启动器当时改为使用独立的 `%APPDATA%\ClaudeZhCN-3p` 用户数据目录，避免官方 Claude 已打开时，中文绿色版被 Electron 单实例锁转交给官方窗口。
 - 修复从 MSIX 解包时 `%40` 没有还原成 `@` 的问题，避免 `app.asar.unpacked\node_modules\@ant\claude-native` 原生模块加载失败。
 - `--create-shortcuts` 会重建带独立用户数据参数的 VBS 启动器。
 
 ### Changed
 
-- 第三方大模型推理配置默认写入中文绿色版专用的 `%APPDATA%\ClaudeZhCN-3p`，仍可通过向导从官方 Claude Desktop 或 Claude Code 同步。
+- 第三方大模型推理配置当时默认写入中文绿色版专用的 `%APPDATA%\ClaudeZhCN-3p`，仍可通过向导从官方 Claude Desktop 或 Claude Code 同步。
 
 ## v0.2.2 - 2026-04-29
 

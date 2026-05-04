@@ -132,7 +132,7 @@ def launcher_path() -> Path:
 
 
 def portable_user_data_dir() -> Path:
-    return roaming_app_data() / "ClaudeZhCN-3p"
+    return roaming_app_data() / "Claude-3p"
 
 
 def legacy_third_party_roaming_dir() -> Path:
@@ -144,10 +144,13 @@ def legacy_third_party_local_dir() -> Path:
 
 
 def legacy_portable_user_data_dirs() -> list[Path]:
-    return [roaming_app_data() / "ClaudeZhCN"]
+    return [
+        roaming_app_data() / "ClaudeZhCN-3p",
+        roaming_app_data() / "ClaudeZhCN",
+    ]
 
 
-PORTABLE_USER_DATA_MIGRATION_MARKER = ".portable-user-data-migrated-v4.json"
+PORTABLE_USER_DATA_MIGRATION_MARKER = ".portable-user-data-migrated-v5-shared.json"
 PORTABLE_USER_DATA_MIGRATION_ITEMS = [
     "claude-code",
     "claude-code-sessions",
@@ -704,17 +707,17 @@ def ensure_portable_user_data_migrated() -> None:
             skipped_existing += skipped
         migrate_portable_account_namespace(selected_source, target_dir, errors=migration_errors)
         print(
-            "Portable user data migration checked: "
+            "Shared user data migration checked: "
             f"{selected_source} -> {target_dir} "
             f"({copied_files} file(s) copied, {skipped_existing} existing file(s) kept)"
         )
         if migration_errors:
-            print("Portable user data migration had copy errors:")
+            print("Shared user data migration had copy errors:")
             for message in migration_errors:
                 print(f"  - {message}")
 
     if migration_errors:
-        print("Portable user data migration marker was not written because some files could not be copied.")
+        print("Shared user data migration marker was not written because some files could not be copied.")
         return
 
     migration_note = {
@@ -853,44 +856,50 @@ def path_size(path: Path) -> int:
     return total
 
 
-def print_path_info(label: str, path: Path) -> None:
+def print_path_info(label: str, path: Path, show_missing: bool = True) -> bool:
     if path.exists():
         print(f"[exists] {label}: {path} ({format_size(path_size(path))})")
-    else:
+        return True
+    if show_missing:
         print(f"[missing] {label}: {path}")
+    return False
 
 
-def show_user_data(target_dir: Path) -> int:
+def show_user_data(target_dir: Path, show_missing: bool = False) -> int:
+    if not show_missing:
+        print("Showing existing paths only. Use --show-missing-user-data to include missing legacy candidates.")
+        print()
+
     print("Claude zh-CN tool paths:")
-    print_path_info("patched app", target_dir.expanduser())
-    print_path_info("launcher", launcher_path())
-    print_path_info("download cache", tool_root() / "downloads")
-    print_path_info("user data backups", tool_root() / "user-data-backups")
+    print_path_info("patched app", target_dir.expanduser(), show_missing)
+    print_path_info("launcher", launcher_path(), show_missing)
+    print_path_info("download cache", tool_root() / "downloads", show_missing)
+    print_path_info("user data backups", tool_root() / "user-data-backups", show_missing)
     for label, path in shortcut_paths().items():
-        print_path_info(f"{label} shortcut", path)
+        print_path_info(f"{label} shortcut", path, show_missing)
     for label, path in claude_code_shortcut_paths().items():
-        print_path_info(f"{label} shortcut", path)
+        print_path_info(f"{label} shortcut", path, show_missing)
     print()
     print("Claude user config/account data paths:")
     for path in user_data_paths():
-        print_path_info("user data", path)
+        print_path_info("user data", path, show_missing)
     print()
     print("Claude third-party inference data paths:")
     for path in third_party_data_paths():
-        print_path_info("third-party data", path)
-        print_path_info("third-party config library", third_party_config_library_dir(path))
+        print_path_info("third-party data", path, show_missing)
+        print_path_info("third-party config library", third_party_config_library_dir(path), show_missing)
     print()
     print("Config files:")
     for path in config_paths():
-        print_path_info("config", path)
+        print_path_info("config", path, show_missing)
     print()
     print("Developer mode files:")
     for path in developer_settings_paths():
-        print_path_info("developer settings", path)
+        print_path_info("developer settings", path, show_missing)
     print()
     print("Claude Code local config files:")
     for path in claude_code_config_paths():
-        print_path_info("Claude Code config", path)
+        print_path_info("Claude Code config", path, show_missing)
     return 0
 
 
@@ -1010,14 +1019,16 @@ Sub KillHcsByPrefix(prefix)
 End Sub
 
 officialUiRunning = HasMatchingProcess("claude.exe", "/windowsapps/claude_")
+If officialUiRunning Then
+  shell.Popup "Official Claude is already running. Claude zh-CN and official Claude now share one user data folder. Please close official Claude first, then start Claude zh-CN.", 0, "Claude zh-CN", 48
+  WScript.Quit 20
+End If
 KillMatchingProcesses "cowork-svc.exe", "{portable_svc_marker}"
 WScript.Sleep 750
 KillHcsByPrefix "ccdesk-vm-"
-If Not officialUiRunning Then
-  KillMatchingProcesses "cowork-svc.exe", "/windowsapps/claude_"
-  WScript.Sleep 750
-  KillHcsByPrefix "cowork-vm-"
-End If
+KillMatchingProcesses "cowork-svc.exe", "/windowsapps/claude_"
+WScript.Sleep 750
+KillHcsByPrefix "cowork-vm-"
 On Error GoTo 0
 If fso.FileExists(svcPath) Then
   If Not fso.FileExists(pipePath) Then
@@ -1072,7 +1083,7 @@ def create_shortcuts(target_dir: Path, dry_run: bool = False) -> int:
     if dry_run:
         launcher = launcher_path()
         print(f"[dry-run] Would create launcher: {launcher}")
-        print(f"[dry-run] Would use portable user data: {portable_user_data_dir()}")
+        print(f"[dry-run] Would use shared user data: {portable_user_data_dir()}")
         wscript = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32/wscript.exe"
         for label, shortcut in shortcut_paths().items():
             print(f"[dry-run] Would create {label} shortcut: {shortcut} -> {wscript} \"{launcher}\"")
@@ -1191,12 +1202,12 @@ def clean_user_data(yes: bool) -> int:
         print("No Claude user config/account data paths were found.")
         return 0
 
-    print("The following Claude user config/account data will be moved to a backup:")
+    print("The following shared, legacy, and official Claude user config/account data will be moved to a backup:")
     for path in existing:
         print(f"  {path} ({format_size(path_size(path))})")
 
     print()
-    print("This will sign Claude out and reset local app state, but backups will be kept.")
+    print("This will sign Claude out and reset local app state for the primary zh-CN profile plus legacy/official Claude data paths shown above. Backups will be kept.")
     if not yes:
         answer = input("Type DELETE to continue: ").strip()
         if answer != "DELETE":
@@ -3268,6 +3279,7 @@ def main() -> int:
     parser.add_argument("--check-update", action="store_true", help="Check whether the patched copy is already current")
     parser.add_argument("--compare-local-msix", type=Path, help="Compare a local Claude.msix version with the current patched version")
     parser.add_argument("--show-user-data", action="store_true", help="Show Claude user config/account data paths")
+    parser.add_argument("--show-missing-user-data", action="store_true", help="Include missing legacy candidate paths in --show-user-data output")
     parser.add_argument("--show-third-party-inference", action="store_true", help="Show Claude Desktop and Claude Code third-party model inference config")
     parser.add_argument("--check-third-party-sources", action="store_true", help="Check whether reusable third-party model inference config exists")
     parser.add_argument("--third-party-wizard", action="store_true", help="Open the third-party model inference config wizard")
@@ -3293,7 +3305,7 @@ def main() -> int:
     if args.compare_local_msix:
         return compare_local_msix(args.target_dir, args.compare_local_msix)
     if args.show_user_data:
-        return show_user_data(args.target_dir)
+        return show_user_data(args.target_dir, args.show_missing_user_data)
     if args.show_third_party_inference:
         return show_third_party_inference_config()
     if args.check_third_party_sources:

@@ -276,8 +276,8 @@ while ($true) {
   Write-Host "========================================" -ForegroundColor Cyan
   Write-Host "1. 汉化 / 更新 / 启动汉化版"
   Write-Host "2. 检查版本更新"
-  Write-Host "3. 定位用户配置/账号数据"
-  Write-Host "4. 清理用户配置/账号数据"
+  Write-Host "3. 定位中文版主用户配置/账号数据"
+  Write-Host "4. 清理中文版主用户配置/账号数据"
   Write-Host "5. 启动汉化版 Claude"
   Write-Host "6. 创建 Claude 和 Claude Code 快捷方式"
   Write-Host "7. 完全清理绿色版文件"
@@ -310,9 +310,14 @@ while ($true) {
   if ($Choice -eq "3") {
     Run-Patcher @("--show-user-data")
     Write-Host ""
-    $Open = Read-Host "是否打开中文绿色版用户数据文件夹? (Y/N)"
+    $ShowMissing = Read-Host "是否显示历史候选/缺失路径? (Y/N)"
+    if ($ShowMissing -match "^[Yy]") {
+      Run-Patcher @("--show-user-data", "--show-missing-user-data")
+    }
+    Write-Host ""
+    $Open = Read-Host "是否打开中文版主用户数据文件夹? (Y/N)"
     if ($Open -match "^[Yy]") {
-      $MainData = Join-Path $env:APPDATA "ClaudeZhCN-3p"
+      $MainData = Join-Path $env:APPDATA "Claude-3p"
       if (Test-Path $MainData) {
         Start-Process explorer.exe $MainData
       } else {
@@ -325,11 +330,12 @@ while ($true) {
 
   if ($Choice -eq "4") {
     Write-Host ""
-    Write-Host "这会退出 Claude 登录状态，并重置本地应用状态。" -ForegroundColor Yellow
+    Write-Host "这会退出 Claude 登录状态，并重置中文版主用户数据的本地应用状态。" -ForegroundColor Yellow
+    Write-Host "也会归档检测到的旧版中文目录、官方 Claude 目录和 MSIX 沙箱数据。" -ForegroundColor Yellow
     Write-Host "数据不会永久删除，会移动备份到 %LOCALAPPDATA%\ClaudeZhCN\user-data-backups。" -ForegroundColor Yellow
     Run-Patcher @("--show-user-data")
     Write-Host ""
-    $Confirm = Read-Host "输入 DELETE 确认清理用户配置/账号数据"
+    $Confirm = Read-Host "输入 DELETE 确认清理中文版主用户配置/账号数据"
     if ($Confirm -eq "DELETE") {
       Stop-ClaudeProcesses
       Run-Patcher @("--clean-user-data", "--yes")

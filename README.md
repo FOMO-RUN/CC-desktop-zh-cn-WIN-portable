@@ -170,6 +170,7 @@ cd C:\Users\TC\Downloads\claude-desktop-zh-cn-main
 9. Reapply Cowork patch and rebuild launcher
 10. Repair official Claude MSIX Cowork sandbox (advanced)
 11. Repair / prepare Cowork environment
+12. Update zh-CN Claude from local Claude.msix
 0. Exit
 ```
 
@@ -187,18 +188,49 @@ cd C:\Users\TC\Downloads\claude-desktop-zh-cn-main
 9. 重新应用 Cowork 补丁并重建启动器
 10. 修复官方 Claude MSIX Cowork 沙箱（高级）
 11. 修复 / 准备 Cowork 环境
+12. 使用本地 Claude.msix 更新中文版
 0. 退出
+```
+
+## 最新版下载
+
+如果你所在网络环境里脚本在线检查经常遇到 `403` 或 Cloudflare challenge，推荐直接在浏览器里手动下载最新版 MSIX，再交给菜单 `1` 或 `12` 使用。
+
+官方下载跳转地址（建议浏览器打开）：
+
+```text
+https://claude.ai/api/desktop/win32/x64/msix/latest/redirect
+```
+
+官方应用发布说明：
+
+```text
+https://docs.anthropic.com/en/release-notes/claude-apps
 ```
 
 ## 更新逻辑
 
-选项 `1` 会先检查官方最新版和本地绿色副本版本。
+选项 `1` 现在是“本地包优先，在线检查回退”的流程。
 
-如果版本一致，工具会跳过下载和重建，只重新应用中文资源、用户界面设置、Cowork 兼容修复和快捷方式。
+工具会优先检查以下本地 `MSIX` 路径：
 
-如果版本不同，工具会询问是否更新。确认后会下载官方最新版 MSIX，备份旧绿色副本，并重新生成新的中文副本。
+```text
+%USERPROFILE%\Downloads\Claude.msix
+%LOCALAPPDATA%\ClaudeZhCN\downloads\Claude.msix
+<tool-dir>\Claude.msix
+```
 
-如果官方下载接口返回 403 或版本检查失败，菜单会尝试回退到本机已安装的 Claude Desktop 继续生成绿色版。没有安装官方版时，可以稍后重试下载，或手动提供 MSIX。
+如果找到本地包，工具会先比较“本地 `Claude.msix` 版本”和“当前中文绿色版版本”：
+
+- 本地包更高：直接用本地包更新。
+- 版本相同：跳过更新，可按提示选择是否重装。
+- 本地包更旧：默认跳过，避免误降级。
+
+如果没找到本地包，菜单 `1` 才会继续走原来的在线检查逻辑。
+
+菜单 `12` 会显式使用本地 `Claude.msix`，并在更新前先输出版本比较结果，适合手动下载最新版后再更新中文版。
+
+如果官方下载接口返回 `403`、Cloudflare challenge 或版本检查失败，菜单会尝试回退到本机已安装的 Claude Desktop 继续生成绿色版。没有安装官方版时，可以稍后重试下载，或手动提供 MSIX。
 
 ## 第三方大模型推理配置向导
 

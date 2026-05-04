@@ -30,6 +30,7 @@ import tempfile
 import urllib.parse
 import urllib.request
 import uuid
+import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -203,6 +204,19 @@ def normalize_version(value: str | None) -> str | None:
     return ".".join(parts)
 
 
+def version_key(value: str | None) -> tuple[int, ...]:
+    normalized = normalize_version(value)
+    if not normalized:
+        return ()
+    parts: list[int] = []
+    for part in normalized.split("."):
+        try:
+            parts.append(int(part))
+        except ValueError:
+            parts.append(0)
+    return tuple(parts)
+
+
 def latest_msix_info() -> dict[str, str | None]:
     request = urllib.request.Request(LATEST_MSIX_URL, headers=DOWNLOAD_HEADERS)
     try:
@@ -233,6 +247,61 @@ def app_version(app_dir: Path) -> str | None:
     result = run([powershell_exe(), "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script], check=False)
     version = result.stdout.strip().splitlines()
     return version[0].strip() if version and version[0].strip() else None
+
+
+def local_msix_version(msix: Path) -> str | None:
+    msix = msix.expanduser()
+    if not msix.exists():
+        raise SystemExit(f"MSIX file does not exist: {msix}")
+    if not msix.is_file():
+        raise SystemExit(f"MSIX path is not a file: {msix}")
+
+    with zipfile.ZipFile(msix) as archive:
+        manifest_name = next((name for name in archive.namelist() if name.endswith("AppxManifest.xml")), None)
+        if not manifest_name:
+            raise SystemExit(f"Could not find AppxManifest.xml in MSIX: {msix}")
+        with archive.open(manifest_name) as manifest_file:
+            tree = ET.parse(manifest_file)
+
+    root = tree.getroot()
+    identity = root.find("{http://schemas.microsoft.com/appx/manifest/foundation/windows10}Identity")
+    if identity is None:
+        identity = root.find("Identity")
+    if identity is None:
+        raise SystemExit(f"Could not find Identity node in MSIX manifest: {msix}")
+
+    version = identity.attrib.get("Version")
+    if not version:
+        raise SystemExit(f"Could not find Version in MSIX manifest: {msix}")
+    return version
+
+
+def compare_local_msix(target_dir: Path, msix: Path) -> int:
+    local_version = app_version(target_dir.expanduser())
+    msix_version = local_msix_version(msix)
+
+    print(f"Local Claude.msix: {msix}")
+    print(f"Local Claude.msix version: {msix_version or 'unknown'}")
+    print(f"Current patched version: {local_version or 'not installed'}")
+
+    msix_key = version_key(msix_version)
+    local_key = version_key(local_version)
+
+    if not msix_key:
+        print("Could not determine the local Claude.msix version.")
+        return 1
+    if not local_key:
+        print("Patched Claude is missing. Local Claude.msix can be installed now.")
+        return 10
+    if msix_key > local_key:
+        print("Local Claude.msix is newer than the current patched Claude.")
+        return 10
+    if msix_key == local_key:
+        print("Local Claude.msix matches the current patched Claude version.")
+        return 0
+
+    print("Local Claude.msix is older than the current patched Claude version.")
+    return 11
 
 
 def check_update(target_dir: Path) -> int:
@@ -3197,6 +3266,7 @@ def main() -> int:
     parser.add_argument("--download-msix", action="store_true", help="Download the latest official Windows MSIX if no source is found")
     parser.add_argument("--force-download", action="store_true", help="Always download the latest official Windows MSIX before patching")
     parser.add_argument("--check-update", action="store_true", help="Check whether the patched copy is already current")
+    parser.add_argument("--compare-local-msix", type=Path, help="Compare a local Claude.msix version with the current patched version")
     parser.add_argument("--show-user-data", action="store_true", help="Show Claude user config/account data paths")
     parser.add_argument("--show-third-party-inference", action="store_true", help="Show Claude Desktop and Claude Code third-party model inference config")
     parser.add_argument("--check-third-party-sources", action="store_true", help="Check whether reusable third-party model inference config exists")
@@ -3220,6 +3290,8 @@ def main() -> int:
 
     if args.check_update:
         return check_update(args.target_dir)
+    if args.compare_local_msix:
+        return compare_local_msix(args.target_dir, args.compare_local_msix)
     if args.show_user_data:
         return show_user_data(args.target_dir)
     if args.show_third_party_inference:

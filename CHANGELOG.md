@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.2.6 - 2026-05-04
+
+### Changed
+
+- 同步 `personal` 分支里已经验证过的代码修复，保持两条分支的补丁逻辑一致。
+- 菜单 `1` 调整为“本地 `Claude.msix` 优先，在线检查回退”流程，适配企业网络下官方更新接口常见的 `403` / Cloudflare challenge 场景。
+- 菜单新增 `12. 使用本地 Claude.msix 更新中文版 / Update zh-CN Claude from local Claude.msix`，显式提供手动本地包更新入口。
+
+### Added
+
+- 新增本地 `MSIX` 版本比较能力：可直接比较本地 `Claude.msix` 与当前中文绿色版版本，避免只依赖在线版本检查。
+- README 补充最新版下载跳转地址与官方发布说明页面，方便在浏览器里手动获取最新版安装包。
+
 ## v0.2.5 - 2026-05-01
 
 ### Fixed

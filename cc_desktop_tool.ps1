@@ -87,7 +87,120 @@ function Launch-AfterPatch {
   }
 }
 
+function Get-LocalMsixCandidates {
+  $candidates = @(
+    (Join-Path $env:USERPROFILE "Downloads\Claude.msix"),
+    (Join-Path $env:LOCALAPPDATA "ClaudeZhCN\downloads\Claude.msix"),
+    (Join-Path $ToolDir "Claude.msix")
+  )
+
+  $seen = @{}
+  foreach ($path in $candidates) {
+    if (-not $path) {
+      continue
+    }
+    $fullPath = [System.IO.Path]::GetFullPath($path)
+    $key = $fullPath.ToLowerInvariant()
+    if (-not $seen.ContainsKey($key)) {
+      $seen[$key] = $true
+      $fullPath
+    }
+  }
+}
+
+function Find-PreferredLocalMsix {
+  foreach ($path in Get-LocalMsixCandidates) {
+    if (Test-Path $path) {
+      return $path
+    }
+  }
+  return $null
+}
+
+function Compare-LocalMsixVersion {
+  param([Parameter(Mandatory = $true)][string]$MsixPath)
+
+  Run-Patcher @("--compare-local-msix", $MsixPath)
+}
+
+function Install-FromLocalMsix {
+  param(
+    [Parameter(Mandatory = $true)][string]$MsixPath,
+    [switch]$LaunchWhenCurrent,
+    [switch]$AllowOlder
+  )
+
+  if (-not (Test-Path $MsixPath)) {
+    Write-Host "Local Claude.msix was not found: $MsixPath" -ForegroundColor Red
+    return
+  }
+
+  Write-Host ""
+  Write-Host "Found local package: $MsixPath" -ForegroundColor Cyan
+  Compare-LocalMsixVersion -MsixPath $MsixPath
+  $CompareStatus = $script:PatchStatus
+
+  if ($CompareStatus -eq 10) {
+    Write-Host ""
+    Write-Host "The local Claude.msix is newer. Updating from the local package first." -ForegroundColor Green
+    Stop-ClaudeProcesses
+    Run-Patcher @("--source", $MsixPath)
+    Launch-AfterPatch
+    return
+  }
+
+  if ($CompareStatus -eq 0) {
+    Write-Host ""
+    Write-Host "The patched zh-CN copy already matches this local Claude.msix version." -ForegroundColor Green
+    $Reinstall = Read-Host "Reapply / reinstall this local package anyway? (Y/N)"
+    if ($Reinstall -match "^[Yy]") {
+      Stop-ClaudeProcesses
+      Run-Patcher @("--source", $MsixPath)
+      Launch-AfterPatch
+      return
+    }
+
+    Run-Patcher @("--apply-user-settings")
+    Offer-ThirdPartyWizard
+    if ($LaunchWhenCurrent) {
+      $Launch = Read-Host "Launch patched Claude now? (Y/N)"
+      if ($Launch -match "^[Yy]") {
+        Start-PatchedClaude
+      }
+    }
+    return
+  }
+
+  if ($CompareStatus -eq 11) {
+    Write-Host ""
+    Write-Host "The local Claude.msix is older than the current patched zh-CN copy." -ForegroundColor Yellow
+    if (-not $AllowOlder) {
+      Write-Host "Skipping the local package to avoid downgrading automatically." -ForegroundColor Yellow
+      return
+    }
+
+    $Downgrade = Read-Host "Use this older local package and overwrite the current zh-CN copy? (Y/N)"
+    if ($Downgrade -match "^[Yy]") {
+      Stop-ClaudeProcesses
+      Run-Patcher @("--source", $MsixPath)
+      Launch-AfterPatch
+    } else {
+      Write-Host "Cancelled."
+    }
+    return
+  }
+
+  Write-Host ""
+  Write-Host "Could not compare the local Claude.msix version. Check whether the file is complete and usable." -ForegroundColor Red
+}
+
 function Update-PatchedClaude {
+  $LocalMsix = Find-PreferredLocalMsix
+  if ($LocalMsix) {
+    Install-FromLocalMsix -MsixPath $LocalMsix -LaunchWhenCurrent
+    return
+  }
+
   Run-Patcher @("--check-update")
   $CheckStatus = $script:PatchStatus
 
@@ -127,6 +240,35 @@ function Update-PatchedClaude {
   Launch-AfterPatch
 }
 
+function Install-FromExplicitLocalMsixMenu {
+  $PreferredMsix = Find-PreferredLocalMsix
+
+  Write-Host ""
+  Write-Host "This will update the zh-CN copy from a local Claude.msix package." -ForegroundColor Cyan
+  if ($PreferredMsix) {
+    Write-Host "Detected default package: $PreferredMsix" -ForegroundColor Green
+    $UsePreferred = Read-Host "Use this default path? (Y/N)"
+    if ($UsePreferred -match "^[Yy]") {
+      Install-FromLocalMsix -MsixPath $PreferredMsix -LaunchWhenCurrent -AllowOlder
+      return
+    }
+  } else {
+    Write-Host "No Claude.msix was found in the default locations:" -ForegroundColor Yellow
+    foreach ($candidate in Get-LocalMsixCandidates) {
+      Write-Host " - $candidate"
+    }
+  }
+
+  Write-Host ""
+  $ManualPath = Read-Host "Enter the full path to Claude.msix"
+  if ([string]::IsNullOrWhiteSpace($ManualPath)) {
+    Write-Host "Cancelled."
+    return
+  }
+
+  Install-FromLocalMsix -MsixPath $ManualPath.Trim() -LaunchWhenCurrent -AllowOlder
+}
+
 while ($true) {
   Write-Host ""
   Write-Host "========================================" -ForegroundColor Cyan
@@ -143,6 +285,7 @@ while ($true) {
   Write-Host "9. Reapply Cowork patch and rebuild launcher"
   Write-Host "10. Repair official Claude MSIX Cowork sandbox (advanced)"
   Write-Host "11. Repair / prepare Cowork environment"
+  Write-Host "12. Update zh-CN Claude from local Claude.msix"
   Write-Host "0. Exit"
   Write-Host ""
 
@@ -266,6 +409,12 @@ while ($true) {
     } else {
       Write-Host "Cancelled."
     }
+    Pause-Menu
+    continue
+  }
+
+  if ($Choice -eq "12") {
+    Install-FromExplicitLocalMsixMenu
     Pause-Menu
     continue
   }

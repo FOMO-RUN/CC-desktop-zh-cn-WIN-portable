@@ -87,7 +87,120 @@ function Launch-AfterPatch {
   }
 }
 
+function Get-LocalMsixCandidates {
+  $candidates = @(
+    (Join-Path $env:USERPROFILE "Downloads\Claude.msix"),
+    (Join-Path $env:LOCALAPPDATA "ClaudeZhCN\downloads\Claude.msix"),
+    (Join-Path $ToolDir "Claude.msix")
+  )
+
+  $seen = @{}
+  foreach ($path in $candidates) {
+    if (-not $path) {
+      continue
+    }
+    $fullPath = [System.IO.Path]::GetFullPath($path)
+    $key = $fullPath.ToLowerInvariant()
+    if (-not $seen.ContainsKey($key)) {
+      $seen[$key] = $true
+      $fullPath
+    }
+  }
+}
+
+function Find-PreferredLocalMsix {
+  foreach ($path in Get-LocalMsixCandidates) {
+    if (Test-Path $path) {
+      return $path
+    }
+  }
+  return $null
+}
+
+function Compare-LocalMsixVersion {
+  param([Parameter(Mandatory = $true)][string]$MsixPath)
+
+  Run-Patcher @("--compare-local-msix", $MsixPath)
+}
+
+function Install-FromLocalMsix {
+  param(
+    [Parameter(Mandatory = $true)][string]$MsixPath,
+    [switch]$LaunchWhenCurrent,
+    [switch]$AllowOlder
+  )
+
+  if (-not (Test-Path $MsixPath)) {
+    Write-Host "未找到本地 Claude.msix: $MsixPath" -ForegroundColor Red
+    return
+  }
+
+  Write-Host ""
+  Write-Host "检测到本地安装包: $MsixPath" -ForegroundColor Cyan
+  Compare-LocalMsixVersion -MsixPath $MsixPath
+  $CompareStatus = $script:PatchStatus
+
+  if ($CompareStatus -eq 10) {
+    Write-Host ""
+    Write-Host "本地 Claude.msix 版本较新，将优先使用本地包更新。" -ForegroundColor Green
+    Stop-ClaudeProcesses
+    Run-Patcher @("--source", $MsixPath)
+    Launch-AfterPatch
+    return
+  }
+
+  if ($CompareStatus -eq 0) {
+    Write-Host ""
+    Write-Host "当前中文版已经是本地 Claude.msix 对应版本。" -ForegroundColor Green
+    $Reinstall = Read-Host "是否仍要重新应用/重装这个本地包? (Y/N)"
+    if ($Reinstall -match "^[Yy]") {
+      Stop-ClaudeProcesses
+      Run-Patcher @("--source", $MsixPath)
+      Launch-AfterPatch
+      return
+    }
+
+    Run-Patcher @("--apply-user-settings")
+    Offer-ThirdPartyWizard
+    if ($LaunchWhenCurrent) {
+      $Launch = Read-Host "是否启动汉化版 Claude? (Y/N)"
+      if ($Launch -match "^[Yy]") {
+        Start-PatchedClaude
+      }
+    }
+    return
+  }
+
+  if ($CompareStatus -eq 11) {
+    Write-Host ""
+    Write-Host "本地 Claude.msix 版本低于当前中文版版本。" -ForegroundColor Yellow
+    if (-not $AllowOlder) {
+      Write-Host "已跳过本地包，避免自动回退到旧版本。" -ForegroundColor Yellow
+      return
+    }
+
+    $Downgrade = Read-Host "是否仍要使用这个较旧的本地包覆盖当前中文版? (Y/N)"
+    if ($Downgrade -match "^[Yy]") {
+      Stop-ClaudeProcesses
+      Run-Patcher @("--source", $MsixPath)
+      Launch-AfterPatch
+    } else {
+      Write-Host "已取消。"
+    }
+    return
+  }
+
+  Write-Host ""
+  Write-Host "无法完成本地 Claude.msix 版本比较，请检查文件是否完整可用。" -ForegroundColor Red
+}
+
 function Update-PatchedClaude {
+  $LocalMsix = Find-PreferredLocalMsix
+  if ($LocalMsix) {
+    Install-FromLocalMsix -MsixPath $LocalMsix -LaunchWhenCurrent
+    return
+  }
+
   Run-Patcher @("--check-update")
   $CheckStatus = $script:PatchStatus
 
@@ -127,6 +240,35 @@ function Update-PatchedClaude {
   Launch-AfterPatch
 }
 
+function Install-FromExplicitLocalMsixMenu {
+  $PreferredMsix = Find-PreferredLocalMsix
+
+  Write-Host ""
+  Write-Host "将优先使用你本地下载的 Claude.msix 更新中文版。" -ForegroundColor Cyan
+  if ($PreferredMsix) {
+    Write-Host "已检测到默认安装包: $PreferredMsix" -ForegroundColor Green
+    $UsePreferred = Read-Host "是否使用这个默认路径? (Y/N)"
+    if ($UsePreferred -match "^[Yy]") {
+      Install-FromLocalMsix -MsixPath $PreferredMsix -LaunchWhenCurrent -AllowOlder
+      return
+    }
+  } else {
+    Write-Host "未在以下默认位置发现 Claude.msix:" -ForegroundColor Yellow
+    foreach ($candidate in Get-LocalMsixCandidates) {
+      Write-Host " - $candidate"
+    }
+  }
+
+  Write-Host ""
+  $ManualPath = Read-Host "请输入本地 Claude.msix 的完整路径"
+  if ([string]::IsNullOrWhiteSpace($ManualPath)) {
+    Write-Host "已取消。"
+    return
+  }
+
+  Install-FromLocalMsix -MsixPath $ManualPath.Trim() -LaunchWhenCurrent -AllowOlder
+}
+
 while ($true) {
   Write-Host ""
   Write-Host "========================================" -ForegroundColor Cyan
@@ -143,6 +285,7 @@ while ($true) {
   Write-Host "9. 重新应用 Cowork 补丁并重建启动器"
   Write-Host "10. 修复官方 Claude MSIX Cowork 沙箱（高级）"
   Write-Host "11. 修复 / 准备 Cowork 环境"
+  Write-Host "12. 使用本地 Claude.msix 更新中文版"
   Write-Host "0. 退出"
   Write-Host ""
 
@@ -266,6 +409,12 @@ while ($true) {
     } else {
       Write-Host "已取消。"
     }
+    Pause-Menu
+    continue
+  }
+
+  if ($Choice -eq "12") {
+    Install-FromExplicitLocalMsixMenu
     Pause-Menu
     continue
   }

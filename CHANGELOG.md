@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- 重新设计中英文 PowerShell 菜单，按初始化、启动、检查更新、更新重汉化、第三方推理、导入同步、Cowork/VM 修复、诊断、快捷方式和清理卸载分组。
+- 中文 PowerShell 菜单现在为每个主选项和高风险子选项补充用途说明，减少误操作。
+- 常见运行输出改为中文，包括版本检查、路径诊断、初始化、OAuth 回调、快捷方式、同步和 Cowork/VM 修复提示。
+- 初始化流程现在只迁移旧绿色版数据和做基础检查；官方 Desktop 与绿色版之间的账号、OAuth、3P 数据同步必须通过菜单明确选择。
+- 导入 / 同步配置支持官方 Desktop -> 绿色版、绿色版 -> 官方 Desktop、自选来源/目标、单独同步 `configLibrary`，写入前会备份目标轻量数据。
+- 配置同步默认排除 `vm_bundles`，避免 Cowork / VM 大文件被复制出多份。
+- Cowork / VM 修复拆成子菜单：重新应用兼容补丁、修复绿色版 runtime bundle、清理绿色版残留、官方 MSIX 高级修复和路径大小诊断。
+- 优化计划任务、自定义页面、项目页和对话记录视图的中文文案。
+- 将 Code[代码] 中误译的 `Branch` 从“分行”修正为“分支”，将 `Fork` 从“叉子”修正为“分叉”。
+- 补齐 `Pinned`、`New project`、`Personal plugins`、`Browse plugins`、`Connectors`、`Skills` 等未汉化或机翻味较重的界面文字。
+
+### Added
+
+- 新增双开 / OAuth 登录修复入口：可备份当前 `claude://` 协议处理器，临时指向汉化版启动器，登录完成后恢复。
+- 启动器现在会转发浏览器传入的 `claude://...` 回调参数，并同时保留绿色版 `--user-data-dir=%APPDATA%\ClaudeZhCN-3p`。
+- 新增旧绿色版用户数据迁移检查，复制缺失的轻量配置和会话数据，但不自动导入官方 Desktop 数据。
+
 ## v0.2.3 - 2026-04-29
 
 ### Fixed

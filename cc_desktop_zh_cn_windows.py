@@ -33,6 +33,11 @@ import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+try:
+    import winreg
+except ImportError:  # pragma: no cover - Windows-only feature.
+    winreg = None
+
 
 LANG_CODE = "zh-CN"
 ROOT = Path(__file__).resolve().parent
@@ -76,6 +81,62 @@ for source_token, target_token in COWORK_NAMESPACE_REPLACEMENTS:
     if len(source_token) != len(target_token):
         raise RuntimeError("Cowork namespace replacement tokens must have the same length.")
 COWORK_PORTABLE_PIPE_NAME = "ccdesk-vm-service"
+OAUTH_PROTOCOL = "claude"
+OAUTH_REG_PATH = rf"Software\Classes\{OAUTH_PROTOCOL}"
+OAUTH_BACKUP_DIRNAME = "oauth-protocol-backups"
+
+PORTABLE_USER_DATA_MIGRATION_MARKER = ".portable-user-data-migrated-v1.json"
+PORTABLE_USER_DATA_MIGRATION_ITEMS = [
+    "claude-code",
+    "claude-code-sessions",
+    "local-agent-mode-sessions",
+    "configLibrary",
+    "IndexedDB",
+    "Local Storage",
+    "Session Storage",
+    "WebStorage",
+    "blob_storage",
+    "Network",
+    "Cookies",
+    "Cookies-journal",
+    "Preferences",
+    "Local State",
+    "window-state.json",
+    "claude_desktop_config.json",
+    "config.json",
+    "developer_settings.json",
+    "git-worktrees.json",
+    "title-gen",
+    "pending-uploads",
+]
+
+USER_DATA_SYNC_ITEMS = [
+    "configLibrary",
+    "IndexedDB",
+    "Local Storage",
+    "Session Storage",
+    "WebStorage",
+    "blob_storage",
+    "Network",
+    "Cookies",
+    "Cookies-journal",
+    "Preferences",
+    "Local State",
+    "window-state.json",
+    "claude_desktop_config.json",
+    "config.json",
+    "developer_settings.json",
+    "git-worktrees.json",
+    "title-gen",
+    "pending-uploads",
+]
+
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
 
 
 def run(cmd: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -135,6 +196,54 @@ def legacy_portable_user_data_dirs() -> list[Path]:
     return [roaming_app_data() / "ClaudeZhCN"]
 
 
+def official_user_data_dirs() -> list[Path]:
+    paths = [
+        roaming_app_data() / "Claude",
+        roaming_app_data() / "Claude-3p",
+    ]
+
+    packages = local_app_data() / "Packages"
+    if packages.exists():
+        for pattern in ["Claude_*", "*Anthropic*Claude*"]:
+            for package in packages.glob(pattern):
+                paths.extend(
+                    [
+                        package / "LocalCache/Roaming/Claude",
+                        package / "LocalCache/Roaming/Claude-3p",
+                    ]
+                )
+
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for path in paths:
+        key = str(path).lower()
+        if key not in seen:
+            unique.append(path)
+            seen.add(key)
+    return unique
+
+
+def portable_user_data_migration_sources() -> list[Path]:
+    paths = [
+        *legacy_portable_user_data_dirs(),
+    ]
+
+    target = portable_user_data_dir().resolve()
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for path in paths:
+        try:
+            if path.resolve() == target:
+                continue
+        except OSError:
+            pass
+        key = str(path).lower()
+        if key not in seen:
+            unique.append(path)
+            seen.add(key)
+    return unique
+
+
 def powershell_exe() -> str:
     return "powershell.exe"
 
@@ -190,14 +299,14 @@ def check_update(target_dir: Path) -> int:
     local_version = app_version(target_dir.expanduser())
     latest_version = latest["version"]
 
-    print(f"Latest Claude Desktop version: {latest_version or 'unknown'}")
-    print(f"Local patched version: {local_version or 'not installed'}")
+    print(f"官方 Claude Desktop 最新版本: {latest_version or '未知'}")
+    print(f"本地汉化绿色版版本: {local_version or '尚未安装'}")
 
     if local_version and latest_version and normalize_version(local_version) == normalize_version(latest_version):
-        print("Local patched Claude is already up to date.")
+        print("本地汉化绿色版已经是最新版本。")
         return 0
 
-    print("Update is available or local patched Claude is missing.")
+    print("检测到可更新版本，或本地汉化绿色版尚未生成。")
     return 10
 
 
@@ -366,56 +475,260 @@ def path_size(path: Path) -> int:
 
 def print_path_info(label: str, path: Path) -> None:
     if path.exists():
-        print(f"[exists] {label}: {path} ({format_size(path_size(path))})")
+        print(f"[存在] {label}: {path} ({format_size(path_size(path))})")
     else:
-        print(f"[missing] {label}: {path}")
+        print(f"[缺失] {label}: {path}")
+
+
+def profile_score(path: Path) -> int:
+    if not path.exists():
+        return 0
+    score = 0
+    for name in PORTABLE_USER_DATA_MIGRATION_ITEMS:
+        candidate = path / name
+        if candidate.exists():
+            score += 1
+            if candidate.is_dir():
+                try:
+                    score += min(25, sum(1 for _ in candidate.rglob("*")))
+                except OSError:
+                    pass
+    return score
+
+
+def copy_file_long_path(source: Path, target: Path, overwrite: bool) -> bool:
+    if target.exists() and not overwrite:
+        return False
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, target)
+    return True
+
+
+def copy_tree_long_path(
+    source: Path,
+    target: Path,
+    overwrite_files: bool,
+    errors: list[str] | None = None,
+    *,
+    excluded_names: set[str] | None = None,
+) -> tuple[int, int]:
+    copied_files = 0
+    skipped_files = 0
+    excluded_names = excluded_names or set()
+    if not source.exists():
+        return copied_files, skipped_files
+
+    if source.is_file():
+        try:
+            if copy_file_long_path(source, target, overwrite_files):
+                copied_files += 1
+            else:
+                skipped_files += 1
+        except OSError as exc:
+            if errors is not None:
+                errors.append(f"{source} -> {target}: {exc}")
+        return copied_files, skipped_files
+
+    target.mkdir(parents=True, exist_ok=True)
+    try:
+        with os.scandir(source) as entries:
+            for entry in entries:
+                if entry.name in excluded_names:
+                    skipped_files += 1
+                    continue
+                child_source = source / entry.name
+                child_target = target / entry.name
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        child_copied, child_skipped = copy_tree_long_path(
+                            child_source,
+                            child_target,
+                            overwrite_files,
+                            errors,
+                            excluded_names=excluded_names,
+                        )
+                        copied_files += child_copied
+                        skipped_files += child_skipped
+                    elif entry.is_file(follow_symlinks=False):
+                        if copy_file_long_path(child_source, child_target, overwrite_files):
+                            copied_files += 1
+                        else:
+                            skipped_files += 1
+                except OSError as exc:
+                    if errors is not None:
+                        errors.append(f"{child_source} -> {child_target}: {exc}")
+    except OSError as exc:
+        if errors is not None:
+            errors.append(f"{source}: {exc}")
+    return copied_files, skipped_files
+
+
+def backup_path_to_tool(path: Path, reason: str) -> Path | None:
+    if not path.exists():
+        return None
+    stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup_root = tool_root() / "user-data-backups" / f"{reason}-{stamp}"
+    backup_root.mkdir(parents=True, exist_ok=True)
+    label = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(path).strip("\\/:"))
+    destination = unique_backup_path(backup_root / label)
+    if path.is_dir():
+        shutil.copytree(path, destination)
+    else:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, destination)
+    return destination
+
+
+def copy_named_items(
+    source_dir: Path,
+    target_dir: Path,
+    names: list[str],
+    *,
+    overwrite: bool,
+    backup_existing: bool,
+    reason: str,
+    exclude_vm: bool = True,
+) -> tuple[int, int, list[str]]:
+    errors: list[str] = []
+    copied = 0
+    skipped = 0
+    excluded = {"vm_bundles"} if exclude_vm else set()
+    for name in names:
+        if name in excluded:
+            continue
+        source = source_dir / name
+        target = target_dir / name
+        if not source.exists():
+            continue
+        if backup_existing and target.exists():
+            backup = backup_path_to_tool(target, reason)
+            if backup:
+                print(f"已备份即将覆盖的目标: {target} -> {backup}")
+        if source.is_dir():
+            child_copied, child_skipped = copy_tree_long_path(
+                source,
+                target,
+                overwrite_files=overwrite,
+                errors=errors,
+                excluded_names=excluded,
+            )
+        else:
+            child_copied, child_skipped = copy_tree_long_path(
+                source,
+                target,
+                overwrite_files=overwrite,
+                errors=errors,
+                excluded_names=excluded,
+            )
+        copied += child_copied
+        skipped += child_skipped
+    return copied, skipped, errors
+
+
+def ensure_portable_user_data_migrated() -> int:
+    target_dir = portable_user_data_dir()
+    marker = target_dir / PORTABLE_USER_DATA_MIGRATION_MARKER
+    target_dir.mkdir(parents=True, exist_ok=True)
+    if marker.exists():
+        print(f"旧绿色版用户数据迁移已经检查过: {marker}")
+        return 0
+
+    candidates = [path for path in portable_user_data_migration_sources() if path.exists()]
+    if not candidates:
+        save_json(
+            marker,
+            {
+                "checkedAt": dt.datetime.now().isoformat(timespec="seconds"),
+                "source": None,
+                "copiedFiles": 0,
+                "skippedFiles": 0,
+                "note": "No legacy source found.",
+            },
+        )
+        print("没有找到旧绿色版用户数据来源。")
+        return 0
+
+    candidates.sort(key=lambda path: (profile_score(path), path.stat().st_mtime if path.exists() else 0), reverse=True)
+    selected = candidates[0]
+    print(f"选择的旧绿色版数据来源: {selected}")
+    print(f"绿色版目标用户数据: {target_dir}")
+    copied, skipped, errors = copy_named_items(
+        selected,
+        target_dir,
+        PORTABLE_USER_DATA_MIGRATION_ITEMS,
+        overwrite=False,
+        backup_existing=False,
+        reason="before-migration",
+        exclude_vm=True,
+    )
+    if errors:
+        print("迁移过程中遇到复制错误；本次不会写入完成标记，下次仍会重试:")
+        for error in errors[:20]:
+            print(f"  {error}")
+        if len(errors) > 20:
+            print(f"  ... {len(errors) - 20} more")
+        return 1
+
+    save_json(
+        marker,
+        {
+            "checkedAt": dt.datetime.now().isoformat(timespec="seconds"),
+            "source": str(selected),
+            "target": str(target_dir),
+            "copiedFiles": copied,
+            "skippedFiles": skipped,
+            "excluded": ["vm_bundles"],
+        },
+    )
+    print(f"旧绿色版用户数据迁移检查完成：复制 {copied} 个文件，保留 {skipped} 个已有文件。")
+    return 0
 
 
 def show_user_data(target_dir: Path) -> int:
-    print("Claude zh-CN tool paths:")
-    print_path_info("patched app", target_dir.expanduser())
-    print_path_info("launcher", launcher_path())
-    print_path_info("download cache", tool_root() / "downloads")
-    print_path_info("user data backups", tool_root() / "user-data-backups")
+    print("Claude zh-CN 工具路径:")
+    print_path_info("汉化版程序目录", target_dir.expanduser())
+    print_path_info("启动器", launcher_path())
+    print_path_info("下载缓存", tool_root() / "downloads")
+    print_path_info("用户数据备份", tool_root() / "user-data-backups")
     for label, path in shortcut_paths().items():
-        print_path_info(f"{label} shortcut", path)
+        print_path_info(f"{label} 快捷方式", path)
     for label, path in claude_code_shortcut_paths().items():
-        print_path_info(f"{label} shortcut", path)
+        print_path_info(f"{label} 快捷方式", path)
     print()
-    print("Claude user config/account data paths:")
+    print("Claude 用户配置 / 账号数据路径:")
     for path in user_data_paths():
-        print_path_info("user data", path)
+        print_path_info("用户数据", path)
     print()
-    print("Claude third-party inference data paths:")
+    print("Claude 第三方大模型推理数据路径:")
     for path in third_party_data_paths():
-        print_path_info("third-party data", path)
-        print_path_info("third-party config library", third_party_config_library_dir(path))
+        print_path_info("第三方推理数据", path)
+        print_path_info("第三方推理配置库[configLibrary]", third_party_config_library_dir(path))
     print()
-    print("Config files:")
+    print("配置文件:")
     for path in config_paths():
-        print_path_info("config", path)
+        print_path_info("config 配置", path)
     print()
-    print("Developer mode files:")
+    print("开发者模式文件:")
     for path in developer_settings_paths():
-        print_path_info("developer settings", path)
+        print_path_info("developer_settings 开发者设置", path)
     print()
-    print("Claude Code local config files:")
+    print("Claude Code 本地配置文件:")
     for path in claude_code_config_paths():
-        print_path_info("Claude Code config", path)
+        print_path_info("Claude Code 配置", path)
     return 0
 
 
 def shortcut_paths() -> dict[str, Path]:
     return {
-        "desktop": Path.home() / "Desktop" / "Claude zh-CN.lnk",
-        "start_menu": roaming_app_data() / "Microsoft/Windows/Start Menu/Programs/Claude zh-CN.lnk",
+        "桌面 Claude zh-CN": Path.home() / "Desktop" / "Claude zh-CN.lnk",
+        "开始菜单 Claude zh-CN": roaming_app_data() / "Microsoft/Windows/Start Menu/Programs/Claude zh-CN.lnk",
     }
 
 
 def claude_code_shortcut_paths() -> dict[str, Path]:
     return {
-        "desktop Claude Code": Path.home() / "Desktop" / "Claude Code.lnk",
-        "start menu Claude Code": roaming_app_data() / "Microsoft/Windows/Start Menu/Programs/Claude Code.lnk",
+        "桌面 Claude Code": Path.home() / "Desktop" / "Claude Code.lnk",
+        "开始菜单 Claude Code": roaming_app_data() / "Microsoft/Windows/Start Menu/Programs/Claude Code.lnk",
     }
 
 
@@ -480,11 +793,109 @@ If fso.FileExists(svcPath) Then
   Next
 End If
 command = q & exePath & q & " --user-data-dir=" & q & userDataDir & q
+For i = 0 To WScript.Arguments.Count - 1
+  command = command & " " & q & WScript.Arguments(i) & q
+Next
 shell.Run command, 1, False
 '''
     launcher.write_text(content, encoding="utf-8")
-    print(f"Created launcher: {launcher}")
+    print(f"已创建 / 更新汉化版启动器: {launcher}")
     return launcher
+
+
+def protocol_backup_dir() -> Path:
+    return tool_root() / OAUTH_BACKUP_DIRNAME
+
+
+def read_oauth_protocol_command() -> str | None:
+    if winreg is None:
+        return None
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, rf"{OAUTH_REG_PATH}\shell\open\command") as key:
+            value, _ = winreg.QueryValueEx(key, "")
+            return str(value)
+    except OSError:
+        return None
+
+
+def backup_oauth_protocol(reason: str) -> Path | None:
+    current = read_oauth_protocol_command()
+    if current is None:
+        print(f"没有找到 HKCU 下的 {OAUTH_PROTOCOL}:// 回调处理器，无需备份。")
+        return None
+    protocol_backup_dir().mkdir(parents=True, exist_ok=True)
+    stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup = unique_backup_path(protocol_backup_dir() / f"{OAUTH_PROTOCOL}-protocol-{reason}-{stamp}.json")
+    save_json(
+        backup,
+        {
+            "createdAt": dt.datetime.now().isoformat(timespec="seconds"),
+            "protocol": OAUTH_PROTOCOL,
+            "command": current,
+        },
+    )
+    print(f"已备份 {OAUTH_PROTOCOL}:// 回调处理器: {backup}")
+    return backup
+
+
+def set_oauth_protocol_to_launcher(target_dir: Path) -> int:
+    if winreg is None:
+        print("当前 Python 运行环境无法访问 Windows 注册表。")
+        return 1
+    launcher = create_launcher(target_dir)
+    backup_oauth_protocol("before-zh-cn")
+    command = f'"{Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "wscript.exe"}" "{launcher}" "%1"'
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, OAUTH_REG_PATH) as key:
+        winreg.SetValueEx(key, "", 0, winreg.REG_SZ, f"URL:{OAUTH_PROTOCOL}")
+        winreg.SetValueEx(key, "URL Protocol", 0, winreg.REG_SZ, "")
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, rf"{OAUTH_REG_PATH}\shell\open\command") as key:
+        winreg.SetValueEx(key, "", 0, winreg.REG_SZ, command)
+    print(f"已将 {OAUTH_PROTOCOL}:// 回调临时指向汉化版启动器:")
+    print(f"  {command}")
+    return 0
+
+
+def latest_oauth_protocol_backup() -> Path | None:
+    backups = sorted(protocol_backup_dir().glob(f"{OAUTH_PROTOCOL}-protocol-*.json"), reverse=True)
+    return backups[0] if backups else None
+
+
+def restore_oauth_protocol(backup_path: Path | None = None) -> int:
+    if winreg is None:
+        print("当前 Python 运行环境无法访问 Windows 注册表。")
+        return 1
+    backup = backup_path or latest_oauth_protocol_backup()
+    if not backup or not backup.exists():
+        print("没有找到可恢复的回调处理器备份。")
+        return 1
+    data = load_json_dict(backup, label="OAuth protocol backup")
+    command = nonempty_string(data.get("command"))
+    if not command:
+        print(f"备份文件中没有有效命令: {backup}")
+        return 1
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, OAUTH_REG_PATH) as key:
+        winreg.SetValueEx(key, "", 0, winreg.REG_SZ, f"URL:{OAUTH_PROTOCOL}")
+        winreg.SetValueEx(key, "URL Protocol", 0, winreg.REG_SZ, "")
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, rf"{OAUTH_REG_PATH}\shell\open\command") as key:
+        winreg.SetValueEx(key, "", 0, winreg.REG_SZ, command)
+    print(f"已从备份恢复 {OAUTH_PROTOCOL}:// 回调处理器: {backup}")
+    print(f"  {command}")
+    return 0
+
+
+def show_oauth_protocol() -> int:
+    print(f"当前 {OAUTH_PROTOCOL}:// 回调处理器:")
+    command = read_oauth_protocol_command()
+    print(f"  {command or 'HKCU 中未设置'}")
+    backup = latest_oauth_protocol_backup()
+    print(f"最近一次备份: {backup or '未找到'}")
+    return 0
+
+
+def oauth_login_prepare(target_dir: Path) -> int:
+    print("汉化版 OAuth 登录修复")
+    print("浏览器登录前请关闭官方 Claude，避免登录回调被错误窗口接走。")
+    return set_oauth_protocol_to_launcher(target_dir)
 
 
 def create_windows_shortcut(
@@ -528,7 +939,7 @@ def create_shortcuts(target_dir: Path, dry_run: bool = False) -> int:
 
         claude_code = claude_code_command()
         if not claude_code:
-            print("Claude Code command was not found, skipping Claude Code shortcuts.")
+            print("未找到 Claude Code 命令，将跳过 Claude Code 快捷方式。")
             return 0
 
         cmd = Path(os.environ.get("ComSpec") or (Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32/cmd.exe"))
@@ -547,11 +958,11 @@ def create_shortcuts(target_dir: Path, dry_run: bool = False) -> int:
             working_directory=launcher.parent,
             icon=exe,
         )
-        print(f"Created {label} shortcut: {shortcut}")
+        print(f"已创建 {label} 快捷方式: {shortcut}")
 
     claude_code = claude_code_command()
     if not claude_code:
-        print("Claude Code command was not found, skipping Claude Code shortcuts.")
+        print("未找到 Claude Code 命令，将跳过 Claude Code 快捷方式。")
         return 0
 
     cmd = Path(os.environ.get("ComSpec") or (Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32/cmd.exe"))
@@ -564,7 +975,7 @@ def create_shortcuts(target_dir: Path, dry_run: bool = False) -> int:
             working_directory=Path.home(),
             icon=claude_code,
         )
-        print(f"Created {label} shortcut: {shortcut}")
+        print(f"已创建 {label} 快捷方式: {shortcut}")
     return 0
 
 
@@ -594,11 +1005,11 @@ def full_clean(target_dir: Path, yes: bool) -> int:
         print_path_info(label, path)
 
     print()
-    print("This does not delete Claude user config/account data or user-data-backups. Use --clean-user-data for account data.")
+    print("这不会删除 Claude 用户配置 / 账号数据，也不会删除 user-data-backups。账号数据请使用 --clean-user-data 清理。")
     if not yes:
         answer = input("Type DELETE to continue: ").strip()
         if answer != "DELETE":
-            print("Cancelled.")
+            print("已取消。")
             return 0
 
     allowed_roots = [
@@ -634,19 +1045,19 @@ def is_within(path: Path, root: Path) -> bool:
 def clean_user_data(yes: bool) -> int:
     existing = [p for p in user_data_paths() if p.exists()]
     if not existing:
-        print("No Claude user config/account data paths were found.")
+        print("没有找到 Claude 用户配置 / 账号数据路径。")
         return 0
 
-    print("The following Claude user config/account data will be moved to a backup:")
+    print("以下 Claude 用户配置 / 账号数据将移动到备份目录:")
     for path in existing:
         print(f"  {path} ({format_size(path_size(path))})")
 
     print()
-    print("This will sign Claude out and reset local app state, but backups will be kept.")
+    print("这会退出 Claude 登录并重置本地应用状态，但会保留备份。")
     if not yes:
         answer = input("Type DELETE to continue: ").strip()
         if answer != "DELETE":
-            print("Cancelled.")
+            print("已取消。")
             return 0
 
     allowed_roots = [roaming_app_data(), local_app_data() / "Packages"]
@@ -665,7 +1076,7 @@ def clean_user_data(yes: bool) -> int:
         shutil.move(str(path), str(destination))
         moved += 1
 
-    print(f"Moved {moved} path(s) to: {backup_root}")
+    print(f"已移动 {moved} 个路径到备份目录: {backup_root}")
     print("Run Claude again to create a fresh user profile.")
     return 0
 
@@ -674,13 +1085,13 @@ def download_latest_msix(download_dir: Path) -> Path:
     download_dir.mkdir(parents=True, exist_ok=True)
     target = download_dir / "Claude-latest.msix"
     tmp = target.with_suffix(target.suffix + ".tmp")
-    print(f"Downloading latest Claude Desktop MSIX to: {target}")
+    print(f"正在下载最新 Claude Desktop MSIX 到: {target}")
     request = urllib.request.Request(LATEST_MSIX_URL, headers=DOWNLOAD_HEADERS)
     try:
         with urllib.request.urlopen(request) as response, tmp.open("wb") as f:
             shutil.copyfileobj(response, f)
     except Exception as exc:
-        print(f"Python download failed: {exc}")
+        print(f"Python 下载失败: {exc}")
         print("Retrying download with PowerShell...")
         download_latest_msix_with_powershell(tmp)
     os.replace(tmp, target)
@@ -697,7 +1108,7 @@ Invoke-WebRequest -Uri '{LATEST_MSIX_URL}' -OutFile '{target}' -Headers $headers
 """
     result = run([powershell_exe(), "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script], check=False)
     if result.returncode != 0:
-        raise SystemExit(result.stdout.strip() or "PowerShell download failed.")
+        raise SystemExit(result.stdout.strip() or "PowerShell 下载失败。")
 
 
 def backup_existing_target(target: Path, dry_run: bool) -> Path | None:
@@ -708,7 +1119,7 @@ def backup_existing_target(target: Path, dry_run: bool) -> Path | None:
     if dry_run:
         print(f"[dry-run] Would move existing target {target} -> {backup}")
         return backup
-    print(f"Backing up existing target: {backup}")
+    print(f"正在备份已有目标目录: {backup}")
     shutil.move(str(target), str(backup))
     return backup
 
@@ -718,7 +1129,7 @@ def copy_app_dir(source_app_dir: Path, target_dir: Path, dry_run: bool) -> None:
     if dry_run:
         print(f"[dry-run] Would copy {source_app_dir} -> {target_dir}")
         return
-    print(f"Copying Claude app files: {source_app_dir} -> {target_dir}")
+    print(f"正在复制 Claude 应用文件: {source_app_dir} -> {target_dir}")
     target_dir.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(source_app_dir, target_dir)
     normalize_percent_encoded_paths(target_dir, dry_run=False)
@@ -774,7 +1185,7 @@ def normalize_percent_encoded_paths(root: Path, dry_run: bool = False) -> int:
             print(f"[dry-run] Would normalize encoded path: {path} -> {target}")
         else:
             merge_or_move_path(path, target)
-            print(f"Normalized encoded path: {path} -> {target}")
+            print(f"已修正编码路径: {path} -> {target}")
         changed += 1
 
     if changed:
@@ -788,7 +1199,7 @@ def safe_extract_msix_app(msix: Path, target_dir: Path, dry_run: bool) -> None:
         print(f"[dry-run] Would extract app/ from {msix} -> {target_dir}")
         return
 
-    print(f"Extracting app/ from MSIX: {msix} -> {target_dir}")
+    print(f"正在从 MSIX 解包 app/: {msix} -> {target_dir}")
     target_dir.parent.mkdir(parents=True, exist_ok=True)
     target_root = target_dir.resolve()
     with zipfile.ZipFile(msix) as archive:
@@ -825,7 +1236,7 @@ def patch_language_whitelist(app_dir: Path) -> Path:
         text = path.read_text(encoding="utf-8")
         if '"zh-CN"' in text:
             remove_zst_sibling(path)
-            print(f"Language whitelist already contains zh-CN: {path.name}")
+            print(f"语言白名单已包含 zh-CN: {path.name}")
             return path
         if LANG_LIST_RE.search(text):
             patched = LANG_LIST_RE.sub(
@@ -835,7 +1246,7 @@ def patch_language_whitelist(app_dir: Path) -> Path:
             )
             path.write_text(patched, encoding="utf-8")
             remove_zst_sibling(path)
-            print(f"Patched language whitelist: {path.name}")
+            print(f"已写入 zh-CN 语言白名单: {path.name}")
             return path
 
     raise SystemExit("Could not patch language whitelist. Claude's bundle format may have changed.")
@@ -860,6 +1271,18 @@ def patch_hardcoded_frontend_strings(app_dir: Path) -> None:
         '"Let go"': '"松开"',
         '"Recents"': '"最近使用"',
         '"View all"': '"查看全部"',
+        '"Pinned"': '"已固定"',
+        'label:"Pinned"': 'label:"已固定"',
+        '"New project"': '"新建项目"',
+        '"新项目"': '"新建项目"',
+        'Ge={yours:"Your projects",team:"Team",shared:"Shared with you"}': 'Ge={yours:"你的项目",team:"团队",shared:"与你共享"}',
+        "es={yours:\"You don't have any projects yet.\",team:\"No team projects yet.\",shared:\"No projects have been shared with you.\"}": 'es={yours:"你还没有项目。",team:"暂无团队项目。",shared:"暂无与你共享的项目。"}',
+        'as={recent:"Recent",created:"Created",alphabetical:"Alphabetical"}': 'as={recent:"最近",created:"创建时间",alphabetical:"字母顺序"}',
+        'return"chatProject"===e.kind?"Chat project":"Space"': 'return"chatProject"===e.kind?"聊天项目":"空间"',
+        'children:"No projects match your search."': 'children:"没有匹配搜索的项目。"',
+        'placeholder:"Search projects"': 'placeholder:"搜索项目"',
+        '"aria-label":"Sort by"': '"aria-label":"排序方式"',
+        'children:"Shared"})': 'children:"已共享"})',
         '[["active","Active"],["archived","Archived"],["all","All"]]': '[["active","活跃"],["archived","已归档"],["all","全部"]]',
         'ei="Local",si="Cloud",ti="Remote Control",ni="All"': 'ei="本地",si="云端",ti="远程控制",ni="全部"',
         'ai=[["1","1d"],["3","3d"],["7","7d"],["30","30d"],["0","All"]]': 'ai=[["1","1天"],["3","3天"],["7","7天"],["30","30天"],["0","全部"]]',
@@ -1069,13 +1492,13 @@ def patch_hardcoded_frontend_strings(app_dir: Path) -> None:
             patched_files += 1
             patched_strings += count
 
-    print(f"Patched hardcoded frontend strings: {patched_strings} replacements in {patched_files} files")
+    print(f"已处理前端硬编码中文文案: {patched_strings} 处替换，涉及 {patched_files} 个文件")
 
 
 def apply_locale_resources(app_dir: Path, dry_run: bool = False) -> int:
     app_dir = app_dir.expanduser()
     if not (app_dir / FRONTEND_I18N_REL / "en-US.json").exists():
-        print(f"Claude frontend resources were not found, skipping locale patch: {app_dir}")
+        print(f"未找到 Claude 前端资源，跳过语言补丁: {app_dir}")
         return 0
 
     normalize_percent_encoded_paths(app_dir, dry_run)
@@ -1115,7 +1538,7 @@ def merge_frontend_locale(app_dir: Path) -> tuple[int, int, int]:
 
     save_json(target, merged)
     extra = len(set(zh_pack) - set(en))
-    print(f"Installed frontend zh-CN: {translated} translated, {fallback} fallback, {extra} extra old keys ignored")
+    print(f"已安装前端 zh-CN 资源: {translated} 条中文，{fallback} 条回退英文，忽略 {extra} 条旧键")
     return translated, fallback, extra
 
 
@@ -1123,7 +1546,7 @@ def install_desktop_locale(app_dir: Path) -> None:
     resources_dir = app_dir / DESKTOP_RESOURCES_REL
     require_file(DESKTOP_TRANSLATION)
     shutil.copy2(DESKTOP_TRANSLATION, resources_dir / "zh-CN.json")
-    print("Installed desktop shell zh-CN resource")
+    print("已安装桌面外壳 zh-CN 资源")
 
 
 def install_statsig_locale(app_dir: Path) -> None:
@@ -1135,7 +1558,7 @@ def install_statsig_locale(app_dir: Path) -> None:
         shutil.copy2(STATSIG_TRANSLATION, target)
     elif (statsig_dir / "en-US.json").exists():
         shutil.copy2(statsig_dir / "en-US.json", target)
-    print("Installed statsig zh-CN resource")
+    print("已安装 statsig zh-CN 资源")
 
 
 def config_paths() -> list[Path]:
@@ -1211,9 +1634,9 @@ def load_json_dict(path: Path, *, backup_invalid: bool = False, label: str = "JS
     except Exception as exc:
         if backup_invalid:
             backup = backup_file(path, "invalid")
-            print(f"Existing {label} was not valid JSON; backed up to {backup}")
+            print(f"已有 {label} 不是有效 JSON，已备份到 {backup}")
         else:
-            print(f"Could not read {label}: {path} ({exc})")
+            print(f"无法读取 {label}: {path} ({exc})")
         return {}
 
 
@@ -1458,9 +1881,9 @@ def ensure_third_party_config_meta(data_dir: Path, dry_run: bool) -> tuple[str, 
             library.mkdir(parents=True, exist_ok=True)
             if meta_path.exists():
                 backup = backup_file(meta_path, "before-third-party-config")
-                print(f"Backed up Claude third-party config metadata: {backup}")
+            print(f"已备份 Claude 第三方推理配置元数据: {backup}")
             save_json(meta_path, data)
-            print(f"Updated Claude third-party config metadata: {meta_path}")
+            print(f"已更新 Claude 第三方推理配置元数据: {meta_path}")
 
     return applied_id, third_party_config_path(applied_id, data_dir)
 
@@ -1478,9 +1901,9 @@ def set_disable_deployment_mode_chooser(data_dir: Path, dry_run: bool) -> None:
             continue
         if config_path.exists():
             backup = backup_file(config_path, "before-skip-login-mode-chooser")
-            print(f"Backed up Claude third-party config: {backup}")
+            print(f"已备份 Claude 第三方推理配置: {backup}")
         save_json(config_path, updated)
-        print(f"Enabled skip login-mode chooser: {config_path}")
+        print(f"已启用跳过登录模式选择: {config_path}")
 
 
 def sync_desktop_third_party_library(source_data_dir: Path, target_data_dir: Path, dry_run: bool = False) -> int:
@@ -1574,11 +1997,11 @@ def show_third_party_inference_config() -> int:
             for entry in source["entries"]:
                 print(
                     f"      - {entry['name']} ({entry['id']}): "
-                    f"{entry['base_url']} / auth={entry['auth_scheme']} / "
+                    f"{entry['base_url']} / 认证={entry['auth_scheme']} / "
                     f"skipLoginChooser={entry['disable_chooser']}"
                 )
     else:
-        print("  Not found.")
+        print("  未找到。")
         for message in desktop_messages:
             print(f"  {message}")
 
@@ -1586,11 +2009,11 @@ def show_third_party_inference_config() -> int:
     discovered, messages = discover_local_claude_gateway_config()
     print("Claude Code gateway[网关] 配置检测:")
     if discovered:
-        print(f"  Base URL: {discovered['base_url']}")
-        print(f"  Credential: {discovered['credential_name']} = {mask_secret(discovered['credential'])}")
-        print(f"  Auth scheme: {discovered['auth_scheme']}")
+        print(f"  网关地址[Base URL]: {discovered['base_url']}")
+        print(f"  凭据[Credential]: {discovered['credential_name']} = {mask_secret(discovered['credential'])}")
+        print(f"  认证方式[Auth scheme]: {discovered['auth_scheme']}")
     else:
-        print("  Not found.")
+        print("  未找到。")
         for message in messages:
             print(f"  {message}")
 
@@ -1598,19 +2021,19 @@ def show_third_party_inference_config() -> int:
     print("Claude Desktop 第三方大模型推理配置:")
     for data_dir in third_party_data_paths():
         meta_path = third_party_config_meta_path(data_dir)
-        print_path_info("third-party metadata", meta_path)
+        print_path_info("第三方推理元数据", meta_path)
         meta = load_json_dict(meta_path, label="Claude third-party config metadata")
         applied_id = nonempty_string(meta.get("appliedId"))
         if not applied_id:
             continue
         config_path = third_party_config_path(applied_id, data_dir)
-        print_path_info("applied third-party config", config_path)
+        print_path_info("当前应用的第三方推理配置", config_path)
         config = load_json_dict(config_path, label="Claude third-party config")
         if config:
-            print(f"  inferenceProvider: {config.get('inferenceProvider') or 'not set'}")
-            print(f"  inferenceGatewayBaseUrl: {config.get('inferenceGatewayBaseUrl') or 'not set'}")
+            print(f"  inferenceProvider: {config.get('inferenceProvider') or '未设置'}")
+            print(f"  inferenceGatewayBaseUrl: {config.get('inferenceGatewayBaseUrl') or '未设置'}")
             print(f"  inferenceGatewayApiKey: {mask_secret(nonempty_string(config.get('inferenceGatewayApiKey')))}")
-            print(f"  inferenceGatewayAuthScheme: {config.get('inferenceGatewayAuthScheme') or 'not set'}")
+            print(f"  inferenceGatewayAuthScheme: {config.get('inferenceGatewayAuthScheme') or '未设置'}")
             print(f"  disableDeploymentModeChooser: {config.get('disableDeploymentModeChooser')}")
     return 0
 
@@ -1634,7 +2057,7 @@ def prompt_line(prompt: str) -> str | None:
         return input(prompt).replace("\x00", "").strip()
     except EOFError:
         print()
-        print("No input was provided; cancelled.")
+        print("没有输入，已取消。")
         return None
 
 
@@ -1697,8 +2120,8 @@ def third_party_config_wizard() -> int:
             target_data_dir = primary_third_party_data_dir()
             print()
             print("这会复制配置库[configLibrary] JSON 文件，并启用跳过登录模式选择。")
-            print(f"Source: {third_party_config_library_dir(source_data_dir)}")
-            print(f"Target: {third_party_config_library_dir(target_data_dir)}")
+            print(f"来源: {third_party_config_library_dir(source_data_dir)}")
+            print(f"目标: {third_party_config_library_dir(target_data_dir)}")
             answer = prompt_line("输入 SYNC 继续: ")
             if answer != "SYNC":
                 print("已取消。")
@@ -1724,6 +2147,189 @@ def third_party_config_wizard() -> int:
             print()
             show_third_party_inference_config()
             continue
+        print("未知选项。")
+
+
+def sync_candidate_dirs() -> list[Path]:
+    paths = [
+        portable_user_data_dir(),
+        *legacy_portable_user_data_dirs(),
+        *official_user_data_dirs(),
+    ]
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for path in paths:
+        key = str(path).lower()
+        if key not in seen:
+            unique.append(path)
+            seen.add(key)
+    return unique
+
+
+def data_dir_label(path: Path) -> str:
+    portable = portable_user_data_dir()
+    if str(path).lower() == str(portable).lower():
+        return "绿色版主空间"
+    if any(str(path).lower() == str(legacy).lower() for legacy in legacy_portable_user_data_dirs()):
+        return "旧版绿色空间"
+    if "packages" in str(path).lower():
+        return "官方 MSIX 沙箱空间"
+    if path.name.lower() in {"claude", "claude-3p"}:
+        return "官方 Desktop 空间"
+    return "Claude 数据空间"
+
+
+def choose_data_dir(candidates: list[Path], title: str, *, require_exists: bool) -> Path | None:
+    shown = [path for path in candidates if path.exists() or not require_exists]
+    if not shown:
+        print("没有找到可选的数据空间。")
+        return None
+    print()
+    print(title)
+    for index, path in enumerate(shown, start=1):
+        status = "exists" if path.exists() else "missing"
+        size = format_size(path_size(path)) if path.exists() else "0 B"
+        print(f"  {index}. [{status}] {data_dir_label(path)} - {path} ({size})")
+    answer = prompt_line("输入编号，或输入 0 取消: ")
+    if answer is None or answer == "0":
+        return None
+    try:
+        choice = int(answer)
+    except ValueError:
+        print("无效选择。")
+        return None
+    if choice < 1 or choice > len(shown):
+        print("无效选择。")
+        return None
+    return shown[choice - 1]
+
+
+def sync_light_user_data(source_dir: Path, target_dir: Path, dry_run: bool = False) -> int:
+    if not source_dir.exists():
+        print(f"来源数据空间不存在: {source_dir}")
+        return 1
+    if source_dir.resolve() == target_dir.resolve():
+        print(f"来源和目标相同: {source_dir}")
+        return 0
+    print("即将同步轻量用户数据。")
+    print("会包含登录态、Local Storage、IndexedDB、3P 配置、MCP/应用配置等。")
+    print("不会复制 vm_bundles / Cowork VM 大文件。")
+    print(f"来源: {source_dir}")
+    print(f"目标: {target_dir}")
+    if dry_run:
+        return 0
+    target_dir.mkdir(parents=True, exist_ok=True)
+    copied, skipped, errors = copy_named_items(
+        source_dir,
+        target_dir,
+        USER_DATA_SYNC_ITEMS,
+        overwrite=True,
+        backup_existing=True,
+        reason="before-user-data-sync",
+        exclude_vm=True,
+    )
+    if errors:
+        print("同步过程中遇到复制错误:")
+        for error in errors[:20]:
+            print(f"  {error}")
+        if len(errors) > 20:
+            print(f"  ... {len(errors) - 20} more")
+        return 1
+    print(f"轻量用户数据同步完成：复制 {copied} 个文件，跳过 {skipped} 个文件。")
+    return 0
+
+
+def choose_config_library_source() -> Path | None:
+    sources = []
+    for path in sync_candidate_dirs():
+        library = third_party_config_library_dir(path)
+        if library.exists():
+            sources.append(path)
+    return choose_data_dir(sources, "请选择 3P 配置库[configLibrary]来源:", require_exists=True)
+
+
+def import_sync_wizard() -> int:
+    print("导入 / 同步配置")
+    print("每次写入目标前都会备份。默认不会复制 Cowork / VM 大文件。")
+    print()
+    show_user_data(default_target_dir())
+
+    while True:
+        print()
+        print("1. 扫描并显示可同步的数据空间")
+        print("2. 官方 Desktop -> 绿色版（轻量用户数据，不复制 VM）")
+        print("3. 绿色版 -> 官方 Desktop（轻量用户数据，不复制 VM）")
+        print("4. 自选来源和目标同步轻量用户数据")
+        print("5. 同步 3P 配置库[configLibrary]到绿色版")
+        print("6. 同步绿色版 3P 配置库[configLibrary]到官方 Desktop")
+        print("7. 从 Claude Code 生成绿色版 3P 配置")
+        print("0. 返回")
+        choice = prompt_line("请选择: ")
+        if choice is None or choice == "0":
+            return 0
+        if choice == "1":
+            show_user_data(default_target_dir())
+            continue
+        if choice == "2":
+            source = choose_data_dir(official_user_data_dirs(), "请选择官方 Desktop 来源空间:", require_exists=True)
+            if not source:
+                continue
+            target = portable_user_data_dir()
+            answer = prompt_line("输入 SYNC 确认同步到绿色版: ")
+            if answer == "SYNC":
+                return sync_light_user_data(source, target)
+            print("已取消。")
+            continue
+        if choice == "3":
+            source = portable_user_data_dir()
+            if not source.exists():
+                print(f"绿色版数据空间不存在: {source}")
+                continue
+            target = choose_data_dir(official_user_data_dirs(), "请选择官方 Desktop 目标空间:", require_exists=False)
+            if not target:
+                continue
+            answer = prompt_line("输入 SYNC 确认同步到官方 Desktop: ")
+            if answer == "SYNC":
+                return sync_light_user_data(source, target)
+            print("已取消。")
+            continue
+        if choice == "4":
+            source = choose_data_dir(sync_candidate_dirs(), "请选择来源空间:", require_exists=True)
+            if not source:
+                continue
+            target = choose_data_dir(sync_candidate_dirs(), "请选择目标空间:", require_exists=False)
+            if not target:
+                continue
+            answer = prompt_line("输入 SYNC 确认同步: ")
+            if answer == "SYNC":
+                return sync_light_user_data(source, target)
+            print("已取消。")
+            continue
+        if choice == "5":
+            source = choose_config_library_source()
+            if not source:
+                continue
+            target = portable_user_data_dir()
+            answer = prompt_line("输入 SYNC 确认同步 3P 配置库到绿色版: ")
+            if answer == "SYNC":
+                return sync_desktop_third_party_library(source, target)
+            print("已取消。")
+            continue
+        if choice == "6":
+            source = portable_user_data_dir()
+            if not third_party_config_library_dir(source).exists():
+                print(f"绿色版 3P 配置库不存在: {third_party_config_library_dir(source)}")
+                continue
+            target = choose_data_dir(official_user_data_dirs(), "请选择官方 Desktop 目标空间:", require_exists=False)
+            if not target:
+                continue
+            answer = prompt_line("输入 SYNC 确认同步绿色版 3P 配置库到官方 Desktop: ")
+            if answer == "SYNC":
+                return sync_desktop_third_party_library(source, target)
+            print("已取消。")
+            continue
+        if choice == "7":
+            return apply_third_party_inference_config(False)
         print("未知选项。")
 
 
@@ -2222,15 +2828,160 @@ def apply_cowork_compat(app_dir: Path, dry_run: bool = False) -> int:
     return 0
 
 
+def bundle_runtime_file_names() -> list[str]:
+    return [
+        "rootfs.vhdx",
+        "rootfs.vhdx.zst",
+        "initrd",
+        "initrd.zst",
+        "vmlinuz",
+        "vmlinuz.zst",
+        "smol-bin.vhdx",
+        "sessiondata.vhdx",
+        ".rootfs.vhdx.origin",
+        ".rootfs.vhdx.zst.origin",
+        ".initrd.origin",
+        ".initrd.zst.origin",
+        ".vmlinuz.origin",
+        ".vmlinuz.zst.origin",
+    ]
+
+
+def cowork_bundle_candidates() -> list[Path]:
+    paths = [
+        portable_user_data_dir() / "vm_bundles" / "claudevm.bundle",
+        roaming_app_data() / "Claude-3p" / "vm_bundles" / "claudevm.bundle",
+        local_app_data() / "Claude-3p" / "vm_bundles" / "claudevm.bundle",
+    ]
+    packages = local_app_data() / "Packages"
+    if packages.exists():
+        for package in packages.glob("Claude_*"):
+            paths.append(package / "LocalCache/Roaming/Claude-3p/vm_bundles/claudevm.bundle")
+            paths.append(package / "LocalCache/Local/Claude-3p/vm_bundles/claudevm.bundle")
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for path in paths:
+        key = str(path).lower()
+        if key not in seen:
+            unique.append(path)
+            seen.add(key)
+    return unique
+
+
+def sync_bundle_runtime_files(src_bundle: Path, dst_bundle: Path, dry_run: bool = False) -> int:
+    if not src_bundle.exists():
+        print(f"VM runtime 来源不存在: {src_bundle}")
+        return 0
+    copied = 0
+    for name in bundle_runtime_file_names():
+        src = src_bundle / name
+        dst = dst_bundle / name
+        if not src.exists():
+            continue
+        needs_copy = not dst.exists()
+        if dst.exists():
+            try:
+                needs_copy = src.stat().st_size != dst.stat().st_size
+            except OSError:
+                needs_copy = True
+        if not needs_copy:
+            continue
+        if dry_run:
+            print(f"[dry-run] Would sync VM runtime file: {src} -> {dst}")
+            copied += 1
+            continue
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
+        copied += 1
+        print(f"已同步 VM runtime 文件: {dst.name}")
+    return copied
+
+
+def repair_portable_cowork_runtime(dry_run: bool = False) -> int:
+    target_bundle = portable_user_data_dir() / "vm_bundles" / "claudevm.bundle"
+    source = next((candidate for candidate in cowork_bundle_candidates() if candidate.exists() and candidate != target_bundle), None)
+    if not source:
+        print("没有找到可复用的 Cowork VM runtime bundle。")
+        for candidate in cowork_bundle_candidates():
+            print(f"  {candidate}")
+        return 0
+    print(f"Cowork VM runtime 来源: {source}")
+    print(f"Cowork VM runtime 目标: {target_bundle}")
+    copied = sync_bundle_runtime_files(source, target_bundle, dry_run)
+    print(f"Cowork VM runtime 修复完成：同步 {copied} 个文件。")
+    return 0
+
+
+def cleanup_cowork_residue(target: str | None = None) -> int:
+    target_label = target or "portable-safe"
+    force_official = "$true" if target == "portable" else "$false"
+    force_portable = "$true" if target == "official" else "$false"
+    script = rf"""
+$ErrorActionPreference = 'SilentlyContinue'
+function Stop-MatchingProcess([string]$Name, [string]$Needle, [bool]$ForceIt) {{
+  Get-CimInstance Win32_Process -Filter "Name = '$Name'" | Where-Object {{
+    $ForceIt -or (($_.ExecutablePath + ' ' + $_.CommandLine).ToLowerInvariant().Contains($Needle.ToLowerInvariant()))
+  }} | ForEach-Object {{
+    Write-Host "正在停止 $Name PID=$($_.ProcessId) $($_.ExecutablePath)"
+    Invoke-CimMethod -InputObject $_ -MethodName Terminate | Out-Null
+  }}
+}}
+Stop-MatchingProcess 'cowork-svc.exe' '\claudezhcn\claude\resources\cowork-svc.exe' $true
+if ({force_official}) {{
+  Stop-MatchingProcess 'cowork-svc.exe' '\windowsapps\claude_' $true
+}}
+if ({force_portable}) {{
+  Stop-MatchingProcess 'cowork-svc.exe' '\claudezhcn\claude\resources\cowork-svc.exe' $true
+}}
+Write-Host "清理目标: {target_label}"
+"""
+    result = run([powershell_exe(), "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script], check=False)
+    if result.stdout.strip():
+        print(result.stdout.strip())
+    return 0 if result.returncode == 0 else result.returncode
+
+
+def cowork_repair_wizard(target_dir: Path) -> int:
+    while True:
+        print()
+        print("Cowork / VM 修复")
+        print("1. 重新应用绿色版 Cowork 兼容补丁并重建启动器")
+        print("2. 修复绿色版 Cowork VM runtime bundle（不复制多份 Profile VM）")
+        print("3. 清理绿色版 Cowork 残留进程")
+        print("4. 修复官方 Claude MSIX Cowork 沙箱（高级）")
+        print("5. 显示 Cowork / VM 路径和大小")
+        print("0. 返回")
+        choice = prompt_line("请选择: ")
+        if choice is None or choice == "0":
+            return 0
+        if choice == "1":
+            return apply_cowork_compat(target_dir, False)
+        if choice == "2":
+            return repair_portable_cowork_runtime(False)
+        if choice == "3":
+            return cleanup_cowork_residue()
+        if choice == "4":
+            answer = prompt_line("这个操作会触碰官方 MSIX 沙箱。输入 REPAIR 继续: ")
+            if answer == "REPAIR":
+                return sync_msix_cowork_compat(False)
+            print("已取消。")
+            continue
+        if choice == "5":
+            for bundle in cowork_bundle_candidates():
+                print_path_info("Cowork VM bundle", bundle)
+            continue
+        print("未知选项。")
+
+
 def sync_msix_cowork_compat(dry_run: bool = False) -> int:
     packages_dir = local_app_data() / "Packages"
     if not packages_dir.exists():
-        print(f"MSIX package directory was not found, skipping official Cowork repair: {packages_dir}")
+        print(f"未找到 MSIX 包目录，跳过官方 Cowork 修复: {packages_dir}")
         return 0
 
     msix_pkgs = sorted(packages_dir.glob("Claude_*"))
     if not msix_pkgs:
-        print("No official Claude MSIX package directory was found.")
+        print("没有找到官方 Claude MSIX 包目录。")
         return 0
 
     src_candidates = [
@@ -2239,7 +2990,7 @@ def sync_msix_cowork_compat(dry_run: bool = False) -> int:
     ]
     src = next((candidate for candidate in src_candidates if candidate.exists()), src_candidates[0])
     if not src.exists():
-        print("Portable smol-bin.vhdx was not found, skipping official Cowork repair. Checked:")
+        print("未找到绿色版 smol-bin.vhdx，跳过官方 Cowork 修复。已检查:")
         for candidate in src_candidates:
             print(f"  {candidate}")
     try:
@@ -2271,15 +3022,15 @@ def sync_msix_cowork_compat(dry_run: bool = False) -> int:
                     check=False,
                 )
                 if start.returncode == 0:
-                    print("Started CoworkVMService.")
+                    print("已启动 CoworkVMService。")
                 else:
-                    print(f"Warning: could not start CoworkVMService: {start.stdout.strip()}")
+                    print(f"警告：无法启动 CoworkVMService: {start.stdout.strip()}")
         elif status == "running":
-            print("CoworkVMService is already running.")
+            print("CoworkVMService 已在运行。")
         else:
-            print("CoworkVMService was not found.")
+            print("未找到 CoworkVMService。")
     except Exception as exc:
-        print(f"Warning: could not check/start CoworkVMService: {exc}")
+        print(f"警告：无法检查/启动 CoworkVMService: {exc}")
 
     if not src.exists():
         return 0
@@ -2302,7 +3053,7 @@ def sync_msix_cowork_compat(dry_run: bool = False) -> int:
                 needs_copy = True
 
         if not needs_copy:
-            print(f"Official MSIX sandbox smol-bin.vhdx is already current: {dst}")
+            print(f"官方 MSIX 沙箱 smol-bin.vhdx 已是最新: {dst}")
             continue
 
         if dry_run:
@@ -2311,7 +3062,7 @@ def sync_msix_cowork_compat(dry_run: bool = False) -> int:
 
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
-        print(f"Synced smol-bin.vhdx to official MSIX sandbox: {dst}")
+        print(f"已同步 smol-bin.vhdx 到官方 MSIX 沙箱: {dst}")
 
     return 0
 
@@ -2331,18 +3082,18 @@ def set_user_locale(dry_run: bool) -> None:
                     raise ValueError("top-level JSON value is not an object")
                 data = loaded
                 if data.get("locale") == LANG_CODE:
-                    print(f"Claude config locale is already {LANG_CODE}: {config}")
+                    print(f"Claude 配置语言已是 {LANG_CODE}: {config}")
                     continue
                 should_backup = True
             except Exception:
                 backup = backup_file(config, "invalid")
-                print(f"Existing config was not valid JSON; backed up to {backup}")
+                print(f"已有配置不是有效 JSON，已备份到 {backup}")
         if should_backup:
             backup = backup_file(config, "before-zh-CN")
-            print(f"Backed up Claude config: {backup}")
+            print(f"已备份 Claude 配置: {backup}")
         data["locale"] = LANG_CODE
         save_json(config, data)
-        print(f"Set Claude config locale: {config}")
+        print(f"已设置 Claude 配置语言: {config}")
 
 
 def enable_developer_mode(dry_run: bool) -> None:
@@ -2360,19 +3111,19 @@ def enable_developer_mode(dry_run: bool) -> None:
                     raise ValueError("top-level JSON value is not an object")
                 data = loaded
                 if data.get("allowDevTools") is True:
-                    print(f"Claude developer mode is already enabled: {settings}")
+                    print(f"Claude 开发者模式已启用: {settings}")
                     continue
                 should_backup = True
             except Exception:
                 backup = backup_file(settings, "invalid")
-                print(f"Existing developer settings were not valid JSON; backed up to {backup}")
+                print(f"已有开发者设置不是有效 JSON，已备份到 {backup}")
 
         if should_backup:
             backup = backup_file(settings, "before-zh-CN")
-            print(f"Backed up Claude developer settings: {backup}")
+            print(f"已备份 Claude 开发者设置: {backup}")
         data["allowDevTools"] = True
         save_json(settings, data)
-        print(f"Enabled Claude developer mode: {settings}")
+        print(f"已启用 Claude 开发者模式: {settings}")
 
 
 def apply_user_settings(target_dir: Path) -> int:
@@ -2380,10 +3131,29 @@ def apply_user_settings(target_dir: Path) -> int:
     enable_developer_mode(False)
     apply_locale_resources(target_dir, False)
     apply_cowork_compat(target_dir, False)
+    ensure_portable_user_data_migrated()
     try:
         create_shortcuts(target_dir)
     except SystemExit as exc:
         print(exc)
+    return 0
+
+
+def initialize_tool(target_dir: Path) -> int:
+    print("正在初始化 WIN CC Desktop zh-CN Portable...")
+    if target_dir.exists():
+        apply_locale_resources(target_dir, False)
+        apply_cowork_compat(target_dir, False)
+    else:
+        print(f"尚未生成汉化版程序: {target_dir}")
+        print("如果要创建中文绿色版，请先运行“更新并重新汉化一次”。")
+    set_user_locale(False)
+    enable_developer_mode(False)
+    ensure_portable_user_data_migrated()
+    if target_dir.exists():
+        create_shortcuts(target_dir)
+    show_oauth_protocol()
+    print("初始化完成。")
     return 0
 
 
@@ -2392,21 +3162,21 @@ def verify(app_dir: Path) -> None:
     data = load_json(frontend)
     values = [v for v in data.values() if isinstance(v, str)]
     chinese = sum(1 for v in values if re.search(r"[\u4e00-\u9fff]", v))
-    print(f"Verified frontend zh-CN JSON: {chinese}/{len(values)} strings contain Chinese")
+    print(f"已验证前端 zh-CN JSON：{chinese}/{len(values)} 条文本包含中文")
 
     desktop = app_dir / DESKTOP_RESOURCES_REL / "zh-CN.json"
     require_file(desktop)
     index_files = list((app_dir / FRONTEND_ASSETS_REL).glob("index-*.js"))
     if not any('"zh-CN"' in p.read_text(encoding="utf-8") for p in index_files):
         raise SystemExit("Verification failed: frontend language whitelist does not contain zh-CN")
-    print("Verified frontend language whitelist contains zh-CN")
+    print("已验证前端语言白名单包含 zh-CN")
 
 
 def launch(app_dir: Path) -> None:
     exe = app_exe(app_dir)
     if not exe:
         raise SystemExit(f"Cannot find Claude.exe in {app_dir}")
-    print(f"Launching Claude: {exe}")
+    print(f"正在启动 Claude: {exe}")
     creationflags = 0
     if os.name == "nt":
         creationflags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
@@ -2433,7 +3203,7 @@ def launch(app_dir: Path) -> None:
             close_fds=True,
             creationflags=creationflags,
         )
-    print("Claude was started in a separate process. This tool window can be closed or returned to the menu.")
+    print("Claude 已在独立进程中启动。这个工具窗口可以关闭，也可以返回菜单。")
 
 
 def resolve_source(args: argparse.Namespace) -> Path:
@@ -2483,7 +3253,7 @@ def prepare_app(args: argparse.Namespace) -> Path:
             copy_app_dir(normalize_app_dir(source), target_dir, dry_run=False)
     except OSError as exc:
         if args.download_msix and not source_was_explicit:
-            print(f"Could not copy installed package files ({exc}). Falling back to latest official MSIX.")
+            print(f"无法复制本机已安装包文件（{exc}），将回退到最新官方 MSIX。")
             msix = download_latest_msix(local_app_data() / "ClaudeZhCN" / "downloads")
             safe_extract_msix_app(msix, target_dir, dry_run=False)
         else:
@@ -2500,11 +3270,20 @@ def main() -> int:
     parser.add_argument("--force-download", action="store_true", help="Always download the latest official Windows MSIX before patching")
     parser.add_argument("--check-update", action="store_true", help="Check whether the patched copy is already current")
     parser.add_argument("--show-user-data", action="store_true", help="Show Claude user config/account data paths")
+    parser.add_argument("--initialize", action="store_true", help="Initialize user settings, migration, shortcuts, and diagnostics")
+    parser.add_argument("--migrate-user-data", action="store_true", help="Migrate legacy portable user data into the portable zh-CN profile")
+    parser.add_argument("--import-sync-wizard", action="store_true", help="Open import/sync config wizard")
     parser.add_argument("--show-third-party-inference", action="store_true", help="Show Claude Desktop and Claude Code third-party model inference config")
     parser.add_argument("--check-third-party-sources", action="store_true", help="Check whether reusable third-party model inference config exists")
     parser.add_argument("--third-party-wizard", action="store_true", help="Open the third-party model inference config wizard")
     parser.add_argument("--apply-third-party-inference", action="store_true", help="Generate Desktop gateway config from Claude Code settings")
+    parser.add_argument("--show-oauth-protocol", action="store_true", help="Show current claude:// protocol handler")
+    parser.add_argument("--prepare-oauth-login", action="store_true", help="Temporarily point claude:// OAuth callback to the zh-CN launcher")
+    parser.add_argument("--restore-oauth-protocol", action="store_true", help="Restore claude:// protocol handler from the latest backup")
     parser.add_argument("--apply-cowork-compat", action="store_true", help="Patch portable Claude so Cowork can coexist with the official MSIX version")
+    parser.add_argument("--cowork-repair-wizard", action="store_true", help="Open Cowork / VM repair wizard")
+    parser.add_argument("--repair-portable-cowork-runtime", action="store_true", help="Sync missing Cowork VM runtime files into the portable profile")
+    parser.add_argument("--cleanup-cowork-residue", action="store_true", help="Clean portable Cowork residue processes")
     parser.add_argument("--sync-msix-cowork", action="store_true", help="Advanced: repair official MSIX Cowork sandbox data after portable usage")
     parser.add_argument("--patch-desktop-menu", action="store_true", help="Patch hardcoded desktop menu strings into zh-CN")
     parser.add_argument("--apply-locale", action="store_true", help="Apply zh-CN locale resources to the patched copy without reinstalling")
@@ -2520,8 +3299,14 @@ def main() -> int:
 
     if args.check_update:
         return check_update(args.target_dir)
+    if args.initialize:
+        return initialize_tool(args.target_dir)
     if args.show_user_data:
         return show_user_data(args.target_dir)
+    if args.migrate_user_data:
+        return ensure_portable_user_data_migrated()
+    if args.import_sync_wizard:
+        return import_sync_wizard()
     if args.show_third_party_inference:
         return show_third_party_inference_config()
     if args.check_third_party_sources:
@@ -2530,8 +3315,20 @@ def main() -> int:
         return third_party_config_wizard()
     if args.apply_third_party_inference:
         return apply_third_party_inference_config(False)
+    if args.show_oauth_protocol:
+        return show_oauth_protocol()
+    if args.prepare_oauth_login:
+        return oauth_login_prepare(args.target_dir)
+    if args.restore_oauth_protocol:
+        return restore_oauth_protocol()
     if args.apply_cowork_compat:
         return apply_cowork_compat(args.target_dir, args.dry_run)
+    if args.cowork_repair_wizard:
+        return cowork_repair_wizard(args.target_dir)
+    if args.repair_portable_cowork_runtime:
+        return repair_portable_cowork_runtime(args.dry_run)
+    if args.cleanup_cowork_residue:
+        return cleanup_cowork_residue()
     if args.sync_msix_cowork:
         return sync_msix_cowork_compat(args.dry_run)
     if args.patch_desktop_menu:
@@ -2561,7 +3358,7 @@ def main() -> int:
     if args.launch and not args.dry_run:
         launch(app_dir)
 
-    print(f"Done. Patched Claude is at: {app_dir}")
+    print(f"完成。汉化版 Claude 位于: {app_dir}")
     return 0
 
 

@@ -13,9 +13,12 @@
 - 独立绿色副本：默认安装到 `%LOCALAPPDATA%\ClaudeZhCN\Claude`，不覆盖官方安装。
 - 中文化体验：合并前端中文资源，并补丁处理部分硬编码菜单、设置页、Code[代码] / Cowork[协作] 文案。
 - 配置选择权：第三方大模型推理配置向导可以保持全新，也可以同步 Claude Desktop 或 Claude Code 的已有配置。
+- 双开登录辅助：官方版和汉化版都需要 OAuth 登录时，可以临时把 `claude://` 回调指向汉化版，登录完成后再恢复。
+- 双向同步：可以从官方 Claude Desktop / Claude Code 导入配置到绿色版，也可以把绿色版配置同步回官方数据空间；写入前会备份。
 - 可跳过登录模式选择：导入或生成配置后，工具会启用 `disableDeploymentModeChooser`，直接进入第三方大模型推理模式。
 - 原版共存：开始菜单里的原版 Claude 仍然是英文官方版，`Claude zh-CN` 快捷方式启动的是中文绿色版，并使用独立的 `%APPDATA%\ClaudeZhCN-3p` 用户数据目录避免单实例冲突。
 - Code[代码] / Cowork[协作] 共存：修复绿色版路径检测，并隔离 Cowork VM 的管道、网络和存储命名空间，降低与官方 MSIX 版同时运行时的冲突。
+- Cowork / VM 保守处理：配置同步默认不会复制 `vm_bundles`，避免每个空间额外占用 10GB+。
 - 快捷方式自动创建：首次汉化或更新后自动创建 `Claude zh-CN` 和 `Claude Code` 的桌面 / 开始菜单快捷方式。
 - 更新友好：版本相同则跳过下载；官方下载接口异常时会回退到本机已安装 Claude。
 
@@ -40,7 +43,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A["菜单 8：第三方大模型推理配置向导"] --> B{"用户选择"}
+    A["菜单 5：第三方大模型推理配置"] --> B{"用户选择"}
     B -- "保持全新" --> C["不导入、不修改第三方大模型推理配置"]
     B -- "同步 Desktop 配置" --> D["复制 configLibrary 并备份目标配置"]
     B -- "从 Claude Code 生成" --> E["读取 ANTHROPIC_BASE_URL 和访问令牌[token]"]
@@ -57,10 +60,11 @@ flowchart TD
 cc_desktop_tool.bat
 ```
 
-选择：
+首次推荐选择：
 
 ```text
-1. Patch / update / launch zh-CN Claude
+1. Initialize / first-run check
+4. Update and repatch zh-CN Claude
 ```
 
 中文菜单入口也可使用：
@@ -76,9 +80,9 @@ cd C:\Users\TC\Downloads\claude-desktop-zh-cn-main
 .\cc_desktop_tool.ps1
 ```
 
-首次运行选项 `1` 后，工具会自动执行：检查版本、生成中文副本、应用中文资源、启用 Developer Mode[开发者模式]、创建快捷方式并启动汉化版。
+首次运行选项 `1` 会做初始化检查、旧绿色版数据迁移、应用用户设置、重建快捷方式和显示 `claude://` 回调指向。之后用选项 `4` 生成或更新汉化副本。
 
-如果检测到可复用的第三方大模型推理配置，工具会询问是否打开配置向导。直接选 `N` 或回车即可保持全新配置，之后也可以通过菜单 `8` 再打开向导。
+如果检测到可复用的第三方大模型推理配置，工具会询问是否打开配置向导。直接选 `N` 或回车即可保持全新配置，之后也可以通过菜单 `5` 再打开向导。
 
 ## 默认路径
 
@@ -127,37 +131,40 @@ cd C:\Users\TC\Downloads\claude-desktop-zh-cn-main
 英文菜单：
 
 ```text
-1. Patch / update / launch zh-CN Claude
-2. Check latest version
-3. Locate user config/account data
-4. Clean user config/account data
-5. Launch patched Claude
-6. Create Claude and Claude Code shortcuts
-7. Full clean portable zh-CN tool files
-8. Third-party model inference config wizard
-9. Apply Cowork compatibility fix
+1. Initialize / first-run check
+2. Launch zh-CN Claude
+3. Check for updates
+4. Update and repatch zh-CN Claude
+5. Third-party model inference config
+6. Import / sync config
+7. Cowork / VM repair
+8. Show paths / diagnostics
+9. Shortcut manager
+10. Clean / reset / uninstall
+11. Dual launch / OAuth login repair
 0. Exit
 ```
 
 中文菜单：
 
 ```text
-1. 汉化 / 更新 / 启动汉化版
-2. 检查版本更新
-3. 定位用户配置/账号数据
-4. 清理用户配置/账号数据
-5. 启动汉化版 Claude
-6. 创建 Claude 和 Claude Code 快捷方式
-7. 完全清理绿色版文件
-8. 第三方大模型推理配置向导
-9. 应用 Cowork 兼容修复
-10. 修复官方 Claude MSIX Cowork 沙箱（高级）
+1. 初始化 / 首次运行检查
+2. 启动汉化版
+3. 检查更新
+4. 更新并重新汉化一次
+5. 第三方大模型推理配置
+6. 导入 / 同步配置
+7. Cowork / VM 修复
+8. 查看路径 / 诊断
+9. 快捷方式管理
+10. 清理 / 重置 / 卸载
+11. 双开 / OAuth 登录修复
 0. 退出
 ```
 
 ## 更新逻辑
 
-选项 `1` 会先检查官方最新版和本地绿色副本版本。
+选项 `4` 会先检查官方最新版和本地绿色副本版本。
 
 如果版本一致，工具会跳过下载和重建，只重新应用中文资源、用户界面设置、Cowork 兼容修复和快捷方式。
 
@@ -167,7 +174,7 @@ cd C:\Users\TC\Downloads\claude-desktop-zh-cn-main
 
 ## 第三方大模型推理配置向导
 
-菜单 `8` 用来处理 Desktop 的 `Developer -> Configure Third-Party Inference[第三方大模型推理]` 配置。默认安装 / 更新不会强行导入第三方配置，只有你在向导里确认后才会写入。
+菜单 `5` 用来处理 Desktop 的 `Developer -> Configure Third-Party Inference[第三方大模型推理]` 配置。默认安装 / 更新不会强行导入第三方配置，只有你在向导里确认后才会写入。
 
 向导提供几种选择：
 
@@ -208,7 +215,7 @@ ANTHROPIC_API_KEY
 写入目标是绿色版优先使用的配置库：
 
 ```text
-%APPDATA%\Claude-3p\configLibrary
+%APPDATA%\ClaudeZhCN-3p\configLibrary
 ```
 
 同步前会备份目标配置库到：
@@ -218,6 +225,50 @@ ANTHROPIC_API_KEY
 ```
 
 导入或生成配置后，工具会启用 `disableDeploymentModeChooser`，让绿色版启动时直接进入第三方大模型推理模式，减少第一次启动时的登录模式选择。敏感值在控制台输出时会打码。
+
+## 双开 / OAuth 登录修复
+
+官方 Claude Desktop 和汉化绿色版可以各自使用账号登录或第三方大模型推理模式。官方版如何登录不归本工具管理；汉化版默认使用独立用户数据目录：
+
+```text
+%APPDATA%\ClaudeZhCN-3p
+```
+
+如果官方版已经使用 OAuth 登录，而汉化版也要通过 Google / 浏览器 OAuth 登录，浏览器完成登录后的 `claude://` 回调可能会被官方版接走。菜单 `11` 提供临时修复流程：
+
+```mermaid
+flowchart TD
+    A["菜单 11：双开 / OAuth 登录修复"] --> B["查看当前 claude:// 指向"]
+    B --> C["关闭官方 Claude，避免抢回调"]
+    C --> D["备份当前协议处理器"]
+    D --> E["临时指向汉化版启动器"]
+    E --> F["启动汉化版并完成 OAuth 登录"]
+    F --> G["登录完成后可恢复原协议处理器"]
+```
+
+启动器会把浏览器传入的 `claude://...` URL 原样转交给汉化版 `Claude.exe`，并同时带上 `--user-data-dir=%APPDATA%\ClaudeZhCN-3p`。这样登录态会写入绿色版独立空间，而不是官方空间。
+
+## 导入 / 同步配置
+
+菜单 `6` 用于处理官方 Desktop、绿色版、旧绿色版和 Claude Code 之间的配置复用。它支持：
+
+```text
+1. 扫描并显示可同步的数据空间
+2. 官方 Desktop -> 绿色版
+3. 绿色版 -> 官方 Desktop
+4. 自选来源和目标同步轻量用户数据
+5. 同步 3P 配置库到绿色版
+6. 同步绿色版 3P 配置库到官方 Desktop
+7. 从 Claude Code 生成绿色版 3P 配置
+```
+
+轻量用户数据同步会尽量包含登录态、Local Storage、IndexedDB、`configLibrary`、MCP / 应用配置等，但默认排除：
+
+```text
+vm_bundles
+```
+
+这是为了避免每个配置空间额外复制一套 Cowork VM。当前 Claude Cowork / VM bundle 通常会占用 10GB 以上。需要修复 Cowork 时，请使用菜单 `7` 的 Cowork / VM 修复功能，而不是通过同步配置复制 VM。
 
 如果没有检测到可复用配置，工具只会提示，不会写入空配置。
 

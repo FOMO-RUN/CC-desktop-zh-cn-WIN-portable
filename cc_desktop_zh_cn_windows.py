@@ -844,7 +844,9 @@ def set_oauth_protocol_to_launcher(target_dir: Path) -> int:
         return 1
     launcher = create_launcher(target_dir)
     backup_oauth_protocol("before-zh-cn")
-    command = f'"{Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "wscript.exe"}" "{launcher}" "%1"'
+    win_root = os.environ.get("SystemRoot") or r"C:\Windows"
+    wscript_path = Path(win_root) / "System32" / "wscript.exe"
+    command = f'"{wscript_path}" "{launcher}" "%1"'
     with winreg.CreateKey(winreg.HKEY_CURRENT_USER, OAUTH_REG_PATH) as key:
         winreg.SetValueEx(key, "", 0, winreg.REG_SZ, f"URL:{OAUTH_PROTOCOL}")
         winreg.SetValueEx(key, "URL Protocol", 0, winreg.REG_SZ, "")

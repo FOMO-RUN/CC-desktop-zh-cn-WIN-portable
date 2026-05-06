@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.2.5 - 2026-05-06
+
+### Fixed
+
+- 修复 Python 3.11 及更低版本解析 OAuth 回调注册命令时可能出现的 `SyntaxError: f-string expression part cannot include a backslash`。
+- 改进 OAuth 回调启动器路径生成逻辑，保持对较旧 Python 版本的兼容性。
+
 ## v0.2.4 - 2026-05-05
 
 ### Changed

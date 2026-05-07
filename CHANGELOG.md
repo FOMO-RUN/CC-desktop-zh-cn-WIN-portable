@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.3.3 - 2026-05-08
+
+### Fixed
+
+- 修复设置页新版本 i18n key 未进入 `ion-dist/i18n/zh-CN.json`，导致 `Avatar`、`Instructions for Claude`、`Preferences` 等仍显示英文的问题。
+- 补齐第三方推理隐私说明、通知偏好、Artifacts、Skills / Connectors 迁移提示、本地会话和自动 PR 设置页文案。
+- 重新验证 `--apply-locale` 会把上述 key 写入真实安装目录，并在关闭 Claude 后清理绿色版前端缓存。
+
 ## v0.3.2 - 2026-05-08
 
 ### Changed

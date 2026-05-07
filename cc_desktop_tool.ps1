@@ -80,7 +80,7 @@ function Start-PatchedClaude {
     Write-Host "You can close this tool window or press Enter to return to the menu." -ForegroundColor Yellow
   } else {
     Write-Host "Patched Claude was not found: $Exe" -ForegroundColor Red
-    Write-Host "Choose option 4 first to update and patch." -ForegroundColor Yellow
+    Write-Host "Choose option 1 for first install / initialization, or option 4 to update and patch." -ForegroundColor Yellow
   }
 }
 
@@ -248,10 +248,10 @@ function Clean-Menu {
 
 while ($true) {
   Show-Header
-  Write-Host "  1. Initialize / first-run check"
+  Write-Host "  1. First install / initialize - install/repair and preseed gateway config while keeping the mode chooser"
   Write-Host "  2. Launch zh-CN Claude"
   Write-Host "  3. Check for updates"
-  Write-Host "  4. Update and repatch zh-CN Claude"
+  Write-Host "  4. Update / rebuild zh-CN portable Claude"
   Write-Host "  5. Third-party model inference config"
   Write-Host "  6. Import / sync config"
   Write-Host "  7. Cowork / VM repair"
@@ -259,6 +259,8 @@ while ($true) {
   Write-Host "  9. Shortcut manager"
   Write-Host " 10. Clean / reset / uninstall"
   Write-Host " 11. Dual launch / OAuth login repair"
+  Write-Host " 12. Enter 3P/API mode"
+  Write-Host " 13. Exit 3P/API mode"
   Write-Host "  0. Exit"
   Write-Host ""
 
@@ -276,6 +278,8 @@ while ($true) {
   if ($Choice -eq "9") { Shortcut-Menu; continue }
   if ($Choice -eq "10") { Clean-Menu; continue }
   if ($Choice -eq "11") { OAuth-Menu; continue }
+  if ($Choice -eq "12") { Run-Patcher @("--enter-third-party-mode"); Pause-Menu; continue }
+  if ($Choice -eq "13") { Run-Patcher @("--exit-third-party-mode"); Pause-Menu; continue }
 
   Write-Host "Unknown option: $Choice" -ForegroundColor Red
   Pause-Menu

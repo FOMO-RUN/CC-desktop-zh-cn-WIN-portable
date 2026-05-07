@@ -43,6 +43,7 @@ LANG_CODE = "zh-CN"
 ROOT = Path(__file__).resolve().parent
 RESOURCES = ROOT / "resources"
 COWORK_PORTABLE_ENV = "CZCOWORK"
+CLAUDE_USER_DATA_DIR_ENV = "CLAUDE_USER_DATA_DIR"
 
 FRONTEND_TRANSLATION = RESOURCES / "frontend-zh-CN.json"
 DESKTOP_TRANSLATION = RESOURCES / "desktop-zh-CN.json"
@@ -725,6 +726,17 @@ def shortcut_paths() -> dict[str, Path]:
     }
 
 
+def legacy_shortcut_paths() -> dict[str, Path]:
+    return {
+        "桌面旧版 WIN CC Desktop": Path.home() / "Desktop" / "WIN CC Desktop zh-CN Portable.lnk",
+        "开始菜单旧版 WIN CC Desktop": roaming_app_data()
+        / "Microsoft/Windows/Start Menu/Programs/WIN CC Desktop zh-CN Portable.lnk",
+        "桌面旧版 CC Desktop": Path.home() / "Desktop" / "CC Desktop zh-CN Portable.lnk",
+        "开始菜单旧版 CC Desktop": roaming_app_data()
+        / "Microsoft/Windows/Start Menu/Programs/CC Desktop zh-CN Portable.lnk",
+    }
+
+
 def claude_code_shortcut_paths() -> dict[str, Path]:
     return {
         "桌面 Claude Code": Path.home() / "Desktop" / "Claude Code.lnk",
@@ -774,6 +786,7 @@ def create_launcher(target_dir: Path) -> Path:
     content = f'''Set shell = CreateObject("WScript.Shell")
 Set env = shell.Environment("PROCESS")
 env("{COWORK_PORTABLE_ENV}") = "1"
+env("{CLAUDE_USER_DATA_DIR_ENV}") = "{user_data_dir}"
 shell.CurrentDirectory = "{working_dir}"
 Set fso = CreateObject("Scripting.FileSystemObject")
 q = Chr(34)
@@ -996,10 +1009,9 @@ def full_clean(target_dir: Path, yes: bool) -> int:
         ("patched app", target_dir.expanduser()),
         ("launcher", launcher_path()),
         ("download cache", tool_root() / "downloads"),
-        ("desktop shortcut", shortcut_paths()["desktop"]),
-        ("start menu shortcut", shortcut_paths()["start_menu"]),
-        ("desktop Claude Code shortcut", claude_code_shortcut_paths()["desktop Claude Code"]),
-        ("start menu Claude Code shortcut", claude_code_shortcut_paths()["start menu Claude Code"]),
+        *[(label, path) for label, path in shortcut_paths().items()],
+        *[(label, path) for label, path in legacy_shortcut_paths().items()],
+        *[(label, path) for label, path in claude_code_shortcut_paths().items()],
     ]
 
     print("The following zh-CN tool files will be permanently deleted if they exist:")
@@ -1260,6 +1272,25 @@ def patch_hardcoded_frontend_strings(app_dir: Path) -> None:
         '"New task"': '"新建任务"',
         '"New session"': '"New session[新会话]"',
         '"新会话"': '"New session[新会话]"',
+        '"Claude for Windows"': '"Claude Windows 版"',
+        '"The fastest way to talk with Claude"': '"与 Claude 对话的最快方式"',
+        '"Get started"': '"开始使用"',
+        '"Sign In"': '"登录"',
+        '"Continue with Google"': '"使用 Google 继续"',
+        '"Continue with email"': '"使用邮箱继续"',
+        '"Enter your email"': '"输入你的邮箱"',
+        '"By continuing, you acknowledge Anthropic’s Privacy Policy."': '"继续即表示你已知晓 Anthropic 的隐私政策。"',
+        '"By continuing, you acknowledge Anthropic’s Privacy Policy(opens in a new tab)."': '"继续即表示你已知晓 Anthropic 的隐私政策。"',
+        '"By continuing, you acknowledge Anthropic’s Privacy Policy (opens in a new tab)."': '"继续即表示你已知晓 Anthropic 的隐私政策。"',
+        '"You can change this later by signing out."': '"退出登录后，你稍后可以更改此选择。"',
+        '"Or continue with Gateway"': '"或继续使用 Gateway[网关]"',
+        '"Continue with Gateway"': '"继续使用 Gateway[网关]"',
+        '"Privacy Policy"': '"隐私政策"',
+        '"Privacy Policy(opens in a new tab)"': '"隐私政策"',
+        '"Privacy Policy (opens in a new tab)"': '"隐私政策"',
+        '"Download Claude for Windows"': '"下载 Claude Windows 版"',
+        "children:\"OR\"": "children:\"或\"",
+        'children:"OR"': 'children:"或"',
         'label:"Cowork",ariaLabel:"Cowork"': 'label:"Cowork[协作]",ariaLabel:"Cowork[协作]"',
         'label:"协作",ariaLabel:"协作"': 'label:"Cowork[协作]",ariaLabel:"Cowork[协作]"',
         'label:"Code",ariaLabel:"Code"': 'label:"Code[代码]",ariaLabel:"Code[代码]"',
@@ -1497,6 +1528,145 @@ def patch_hardcoded_frontend_strings(app_dir: Path) -> None:
     print(f"已处理前端硬编码中文文案: {patched_strings} 处替换，涉及 {patched_files} 个文件")
 
 
+FIRST_RUN_FRONTEND_TRANSLATIONS = {
+    "/aBLH2Kytu": "开始使用",
+    "Ub+AGcdPg6": "登录",
+    "qZjfHa3uMI": "下载 Claude Windows 版",
+    "aKmabj9GL7": "与 Claude 对话的最快方式",
+    "FJ6r9Eufij": "使用 Google 继续",
+    "l6yCDglZqT": "使用邮箱继续",
+    "WZnsSUyRsT": "输入你的邮箱",
+    "1rdtC2xx7v": "继续即表示你已知晓 Anthropic 的 <privacyLink>隐私政策</privacyLink>，并同意偶尔接收推广邮件和通知。",
+    "8qzCpf4q7/": "继续即表示你已知晓 Anthropic 的 <privacyLink>隐私政策</privacyLink>。",
+    "8nsTrp2M6s": "退出登录后，你稍后可以更改此选择。",
+}
+
+
+LOGIN_PAGE_PRELOAD_MARKER = "WIN_CC_ZH_CN_LOGIN_DOM_TRANSLATION_V5"
+LOGIN_PAGE_PRELOAD_SNIPPET = r'''
+;(()=>{const MARK="WIN_CC_ZH_CN_LOGIN_DOM_TRANSLATION_V5";if(globalThis[MARK])return;globalThis[MARK]=true;
+const allowed=()=>{try{const u=new URL(location.href);return /(^|\.)claude\.(ai|com)$/.test(u.hostname)&&u.pathname.startsWith("/login")}catch{return false}};
+const map=new Map([
+["Claude for Windows","Claude Windows 版"],
+["for Windows","Windows 版"],
+["The fastest way to talk with Claude","与 Claude 对话的最快方式"],
+["Get started","开始使用"],
+["Sign In","登录"],
+["Continue with Google","使用 Google 继续"],
+["Continue with email","使用邮箱继续"],
+["Enter your email","输入你的邮箱"],
+["OR","或"],
+["By continuing, you acknowledge Anthropic's Privacy Policy.","继续即表示你已知晓 Anthropic 的隐私政策。"],
+["By continuing, you acknowledge Anthropic’s Privacy Policy.","继续即表示你已知晓 Anthropic 的隐私政策。"],
+["By continuing, you acknowledge Anthropic's Privacy Policy(opens in a new tab).","继续即表示你已知晓 Anthropic 的隐私政策。"],
+["By continuing, you acknowledge Anthropic’s Privacy Policy(opens in a new tab).","继续即表示你已知晓 Anthropic 的隐私政策。"],
+["By continuing, you acknowledge Anthropic's Privacy Policy (opens in a new tab).","继续即表示你已知晓 Anthropic 的隐私政策。"],
+["By continuing, you acknowledge Anthropic’s Privacy Policy (opens in a new tab).","继续即表示你已知晓 Anthropic 的隐私政策。"],
+["Privacy Policy(opens in a new tab)","隐私政策"],
+["Privacy Policy (opens in a new tab)","隐私政策"],
+["You can change this later by signing out.","退出登录后，你稍后可以更改此选择。"],
+["Or continue with Gateway","或继续使用 Gateway[网关]"],
+["Continue with Gateway","继续使用 Gateway[网关]"]
+]);
+const replace=s=>{let v=s;for(const[a,b]of map)v=v.split(a).join(b);return v.replace(/for\s+Windows/g,"Windows 版")};
+const walk=root=>{if(!allowed()||!root)return;try{
+const tw=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,{acceptNode:n=>{const p=n.parentElement;if(!p||["SCRIPT","STYLE","NOSCRIPT"].includes(p.tagName))return NodeFilter.FILTER_REJECT;return map.has(n.nodeValue.trim())||/for\s+Windows/.test(n.nodeValue)||[...map.keys()].some(k=>n.nodeValue.includes(k))?NodeFilter.FILTER_ACCEPT:NodeFilter.FILTER_SKIP}});
+for(let n;n=tw.nextNode();)n.nodeValue=replace(n.nodeValue);
+for(const el of root.querySelectorAll?.("input,textarea,button,[aria-label],[title]")||[])for(const attr of ["placeholder","aria-label","title","value"]){const v=el.getAttribute?.(attr);if(v&&[...map.keys()].some(k=>v.includes(k)))el.setAttribute(attr,replace(v))}
+for(const h of root.querySelectorAll?.("h1,h2,[role=heading]")||[])if(/Claude/i.test(h.textContent||"")&&/Windows/i.test(h.textContent||""))h.textContent="Claude Windows 版";
+}catch{}};
+const run=()=>walk(document.body||document.documentElement);
+addEventListener("DOMContentLoaded",run,{once:true});setTimeout(run,50);setTimeout(run,500);setTimeout(run,1500);
+const watch=()=>{const r=document.documentElement||document.body;if(!r){setTimeout(watch,50);return}try{new MutationObserver(m=>{for(const x of m)for(const n of x.addedNodes)walk(n.nodeType===1?n:n.parentElement)}).observe(r,{childList:true,subtree:true});run()}catch{setTimeout(watch,200)}};
+watch();
+})();
+'''
+
+
+def patch_login_page_preload_translation(app_dir: Path, dry_run: bool = False) -> int:
+    asar = app_dir.expanduser() / "resources/app.asar"
+    if not asar.exists():
+        print(f"未找到 Claude app.asar，跳过登录页运行时中文补丁: {asar}")
+        return 0
+
+    target_path = ".vite/build/mainView.js"
+
+    def patcher(content: bytes) -> bytes:
+        text = content.decode("utf-8")
+        if LOGIN_PAGE_PRELOAD_MARKER in text:
+            return content
+        legacy_prefix = ';(()=>{const MARK="WIN_CC_ZH_CN_LOGIN_DOM_TRANSLATION_V'
+        while legacy_prefix in text:
+            start = text.find(legacy_prefix)
+            end = text.find("\n})();", start)
+            if end < 0:
+                break
+            text = text[:start] + text[end + len("\n})();") :]
+        marker = "\n//# sourceMappingURL=mainView.js.map"
+        if marker not in text:
+            raise SystemExit("无法找到 mainView.js source map 标记，跳过登录页运行时中文补丁。")
+        return text.replace(marker, LOGIN_PAGE_PRELOAD_SNIPPET + marker, 1).encode("utf-8")
+
+    data = asar.read_bytes()
+    if LOGIN_PAGE_PRELOAD_MARKER.encode("utf-8") in data:
+        print(f"登录页运行时中文补丁已存在: {asar}")
+        current_hash = asar_header_hash(data)
+        if not dry_run:
+            patch_exe_asar_header_hash(app_dir, current_hash, backup_header_hashes(asar), "before-login-dom-zh-CN")
+        return 0
+
+    if dry_run:
+        print(f"[dry-run] 将向 {target_path} 注入登录页运行时中文补丁。")
+        return 0
+
+    backup = backup_file(asar, "before-login-dom-zh-CN")
+    try:
+        changed, old_header_hash, new_header_hash = patch_asar_file_bytes(asar, target_path, patcher)
+    except PermissionError:
+        if backup.exists():
+            shutil.copy2(backup, asar)
+        raise SystemExit(
+            "无法注入登录页中文补丁，因为 Windows 拒绝访问 app.asar。"
+            "请完全关闭 Claude 后再重新运行初始化或更新。"
+        )
+    except Exception:
+        if backup.exists():
+            shutil.copy2(backup, asar)
+        raise
+
+    if not changed:
+        print(f"登录页运行时中文补丁已存在: {asar}")
+        return 0
+
+    print(f"已备份 Claude app.asar: {backup}")
+    print("已注入登录页运行时中文补丁：仅对 https://claude.ai/login / https://claude.com/login 生效")
+    patch_exe_asar_header_hash(
+        app_dir,
+        new_header_hash,
+        [old_header_hash, *backup_header_hashes(asar)],
+        "before-login-dom-zh-CN",
+    )
+    return 1
+
+
+def patch_frontend_fallback_locale(app_dir: Path) -> int:
+    source = app_dir / FRONTEND_I18N_REL / "en-US.json"
+    data = load_json(source)
+    if not isinstance(data, dict):
+        raise SystemExit("Unsupported frontend en-US JSON shape.")
+
+    changed = 0
+    for key, value in FIRST_RUN_FRONTEND_TRANSLATIONS.items():
+        if key in data and data[key] != value:
+            data[key] = value
+            changed += 1
+
+    if changed:
+        save_json(source, data)
+    print(f"已处理登录前界面 fallback 中文文案: {changed} 条")
+    return changed
+
+
 def apply_locale_resources(app_dir: Path, dry_run: bool = False) -> int:
     app_dir = app_dir.expanduser()
     if not (app_dir / FRONTEND_I18N_REL / "en-US.json").exists():
@@ -1508,10 +1678,14 @@ def apply_locale_resources(app_dir: Path, dry_run: bool = False) -> int:
     require_file(DESKTOP_TRANSLATION)
     patch_language_whitelist(app_dir)
     patch_hardcoded_frontend_strings(app_dir)
+    patch_frontend_fallback_locale(app_dir)
     merge_frontend_locale(app_dir)
     install_desktop_locale(app_dir)
     install_statsig_locale(app_dir)
     patch_hardcoded_desktop_menu_strings(app_dir, dry_run)
+    patch_login_page_preload_translation(app_dir, dry_run)
+    if not dry_run:
+        clear_portable_frontend_cache()
     return 0
 
 
@@ -1530,7 +1704,11 @@ def merge_frontend_locale(app_dir: Path) -> tuple[int, int, int]:
     translated = 0
     fallback = 0
     for key, value in en.items():
-        if key in zh_pack:
+        if key in FIRST_RUN_FRONTEND_TRANSLATIONS:
+            merged[key] = FIRST_RUN_FRONTEND_TRANSLATIONS[key]
+            if FIRST_RUN_FRONTEND_TRANSLATIONS[key] != value:
+                translated += 1
+        elif key in zh_pack:
             merged[key] = zh_pack[key]
             if zh_pack[key] != value:
                 translated += 1
@@ -1547,8 +1725,26 @@ def merge_frontend_locale(app_dir: Path) -> tuple[int, int, int]:
 def install_desktop_locale(app_dir: Path) -> None:
     resources_dir = app_dir / DESKTOP_RESOURCES_REL
     require_file(DESKTOP_TRANSLATION)
-    shutil.copy2(DESKTOP_TRANSLATION, resources_dir / "zh-CN.json")
-    print("已安装桌面外壳 zh-CN 资源")
+    zh_pack = load_json(DESKTOP_TRANSLATION)
+    if not isinstance(zh_pack, dict):
+        raise SystemExit("Unsupported desktop zh-CN JSON shape.")
+
+    zh_target = resources_dir / "zh-CN.json"
+    save_json(zh_target, zh_pack)
+
+    fallback = resources_dir / "en-US.json"
+    changed = 0
+    if fallback.exists():
+        en = load_json(fallback)
+        if isinstance(en, dict):
+            for key, value in zh_pack.items():
+                if key in en and en[key] != value:
+                    en[key] = value
+                    changed += 1
+            if changed:
+                save_json(fallback, en)
+
+    print(f"已安装桌面外壳 zh-CN 资源，并处理 fallback 中文文案: {changed} 条")
 
 
 def install_statsig_locale(app_dir: Path) -> None:
@@ -1561,6 +1757,31 @@ def install_statsig_locale(app_dir: Path) -> None:
     elif (statsig_dir / "en-US.json").exists():
         shutil.copy2(statsig_dir / "en-US.json", target)
     print("已安装 statsig zh-CN 资源")
+
+
+def clear_portable_frontend_cache() -> int:
+    cache_names = [
+        "Code Cache",
+        "Cache",
+        "GPUCache",
+        "DawnCache",
+        "Service Worker",
+        "Session Storage",
+        "Shared Dictionary",
+        "blob_storage",
+    ]
+    removed = 0
+    for name in cache_names:
+        path = portable_user_data_dir() / name
+        if not path.exists():
+            continue
+        try:
+            delete_if_exists(path)
+            removed += 1
+            print(f"已清理绿色版前端缓存: {path}")
+        except OSError as exc:
+            print(f"警告：无法清理绿色版前端缓存 {path}: {exc}")
+    return removed
 
 
 def config_paths() -> list[Path]:
@@ -1883,7 +2104,7 @@ def ensure_third_party_config_meta(data_dir: Path, dry_run: bool) -> tuple[str, 
             library.mkdir(parents=True, exist_ok=True)
             if meta_path.exists():
                 backup = backup_file(meta_path, "before-third-party-config")
-            print(f"已备份 Claude 第三方推理配置元数据: {backup}")
+                print(f"已备份 Claude 第三方推理配置元数据: {backup}")
             save_json(meta_path, data)
             print(f"已更新 Claude 第三方推理配置元数据: {meta_path}")
 
@@ -1908,6 +2129,45 @@ def set_disable_deployment_mode_chooser(data_dir: Path, dry_run: bool) -> None:
         print(f"已启用跳过登录模式选择: {config_path}")
 
 
+def set_deployment_mode_3p(
+    data_dir: Path,
+    dry_run: bool,
+    reason: str = "before-enter-third-party-mode",
+) -> bool:
+    config_path = data_dir / "claude_desktop_config.json"
+    current = load_json_dict(config_path, backup_invalid=True, label="Claude desktop config")
+    if current.get("deploymentMode") == "3p":
+        return False
+
+    updated = dict(current)
+    updated["deploymentMode"] = "3p"
+    if dry_run:
+        print(f"[dry-run] 将设置 Claude Desktop 主配置 deploymentMode=3p: {config_path}")
+        return True
+
+    if config_path.exists():
+        backup = backup_file(config_path, reason)
+        print(f"已备份 Claude Desktop 主配置: {backup}")
+    save_json(config_path, updated)
+    print(f"已设置 Claude Desktop 主配置 deploymentMode=3p: {config_path}")
+    return True
+
+
+def set_portable_deployment_mode_3p(dry_run: bool, reason: str = "before-enter-third-party-mode") -> bool:
+    return set_deployment_mode_3p(portable_user_data_dir(), dry_run, reason)
+
+
+def refresh_launcher_for_third_party_mode(dry_run: bool = False) -> None:
+    target_dir = default_target_dir()
+    if not app_exe(target_dir.expanduser()):
+        print(f"未找到汉化版程序，跳过刷新启动器: {target_dir}")
+        return
+    if dry_run:
+        print(f"[dry-run] 将刷新汉化版启动器并设置 {CLAUDE_USER_DATA_DIR_ENV}: {launcher_path()}")
+        return
+    create_launcher(target_dir)
+
+
 def sync_desktop_third_party_library(source_data_dir: Path, target_data_dir: Path, dry_run: bool = False) -> int:
     source_library = third_party_config_library_dir(source_data_dir)
     target_library = third_party_config_library_dir(target_data_dir)
@@ -1918,6 +2178,9 @@ def sync_desktop_third_party_library(source_data_dir: Path, target_data_dir: Pat
     if source_data_dir.resolve() == target_data_dir.resolve():
         print(f"来源和目标配置库[configLibrary]相同: {source_library}")
         set_disable_deployment_mode_chooser(target_data_dir, dry_run)
+        set_deployment_mode_3p(target_data_dir, dry_run, "before-sync-third-party-library")
+        if target_data_dir.resolve() == portable_user_data_dir().resolve():
+            refresh_launcher_for_third_party_mode(dry_run)
         return 0
 
     json_files = sorted(source_library.glob("*.json"))
@@ -1929,6 +2192,7 @@ def sync_desktop_third_party_library(source_data_dir: Path, target_data_dir: Pat
     print(f"目标配置库[configLibrary]: {target_library}")
     if dry_run:
         print(f"[dry-run] 将同步 {len(json_files)} 个配置文件。")
+        set_deployment_mode_3p(target_data_dir, dry_run, "before-sync-third-party-library")
         return 0
 
     backup = backup_third_party_library(target_data_dir, "before-sync")
@@ -1942,10 +2206,13 @@ def sync_desktop_third_party_library(source_data_dir: Path, target_data_dir: Pat
         print(f"已同步配置文件: {target.name}")
 
     set_disable_deployment_mode_chooser(target_data_dir, dry_run)
+    set_deployment_mode_3p(target_data_dir, dry_run, "before-sync-third-party-library")
+    if target_data_dir.resolve() == portable_user_data_dir().resolve():
+        refresh_launcher_for_third_party_mode(dry_run)
     return 0
 
 
-def apply_third_party_inference_config(dry_run: bool = False) -> int:
+def apply_third_party_inference_config(dry_run: bool = False, force_mode: bool = True) -> int:
     discovered, messages = discover_local_claude_gateway_config()
     if not discovered:
         print("没有应用 Claude Code gateway[网关] 配置。")
@@ -1969,12 +2236,27 @@ def apply_third_party_inference_config(dry_run: bool = False) -> int:
             "inferenceGatewayBaseUrl": discovered["base_url"],
             "inferenceGatewayApiKey": discovered["credential"],
             "inferenceGatewayAuthScheme": discovered["auth_scheme"],
-            "disableDeploymentModeChooser": True,
         }
     )
+    if force_mode:
+        updated["disableDeploymentModeChooser"] = True
+    else:
+        updated.pop("disableDeploymentModeChooser", None)
 
-    if updated == current:
+    config_changed = updated != current
+    if force_mode:
+        mode_changed = set_portable_deployment_mode_3p(dry_run, "before-third-party-config")
+    else:
+        mode_changed = clear_portable_deployment_mode(dry_run)
+    if not config_changed:
         print(f"Claude 第三方大模型推理配置已是最新: {config_path}")
+        if force_mode and mode_changed:
+            print("已同步进入 3P/API 模式。")
+        elif not force_mode:
+            print("已保留 Anthropic 登录/模式选择入口。")
+        refresh_launcher_for_third_party_mode(dry_run)
+        if not force_mode and not dry_run:
+            clear_portable_frontend_cache()
         return 0
 
     if dry_run:
@@ -1986,7 +2268,183 @@ def apply_third_party_inference_config(dry_run: bool = False) -> int:
         print(f"已备份 Claude 第三方大模型推理配置: {backup}")
     save_json(config_path, updated)
     print(f"已应用 Claude 第三方大模型推理配置: {config_path} (id: {config_id})")
+    if force_mode and mode_changed:
+        print("已同步进入 3P/API 模式。")
+    elif not force_mode:
+        print("已预置 3P/API gateway[网关] 配置，并保留 Anthropic 登录/模式选择入口。")
+    refresh_launcher_for_third_party_mode(dry_run)
+    if not force_mode:
+        clear_portable_frontend_cache()
 
+    return 0
+
+
+def enter_third_party_mode(dry_run: bool = False) -> int:
+    data_dir = primary_third_party_data_dir()
+    entries = third_party_config_entries(data_dir)
+    if not entries:
+        print(f"绿色版没有可用的 3P gateway[网关] 配置: {third_party_config_library_dir(data_dir)}")
+        print("请先同步 Desktop 配置库[configLibrary]，或从 Claude Code 生成 3P 配置。")
+        return 1
+
+    meta_path = third_party_config_meta_path(data_dir)
+    meta = load_json_dict(meta_path, backup_invalid=True, label="Claude third-party config metadata")
+    original_meta = json.dumps(meta, sort_keys=True, ensure_ascii=False)
+    applied_id = nonempty_string(meta.get("appliedId"))
+    selected = next((entry for entry in entries if entry["id"] == applied_id), entries[0])
+
+    existing_entries = meta.get("entries")
+    names_by_id: dict[str, str] = {}
+    if isinstance(existing_entries, list):
+        for entry in existing_entries:
+            if not isinstance(entry, dict):
+                continue
+            entry_id = nonempty_string(entry.get("id"))
+            if entry_id:
+                names_by_id[entry_id] = nonempty_string(entry.get("name")) or entry_id
+
+    normalized_entries: list[dict[str, str]] = []
+    seen_ids: set[str] = set()
+    for entry in entries:
+        entry_id = entry["id"]
+        normalized_entries.append({"id": entry_id, "name": names_by_id.get(entry_id) or entry["name"] or "Default"})
+        seen_ids.add(entry_id)
+    if selected["id"] not in seen_ids:
+        normalized_entries.append({"id": selected["id"], "name": selected["name"] or "Default"})
+
+    meta["appliedId"] = selected["id"]
+    meta["entries"] = normalized_entries
+    updated_meta = json.dumps(meta, sort_keys=True, ensure_ascii=False)
+
+    config_path = selected["path"]
+    current = load_json_dict(config_path, backup_invalid=True, label="Claude third-party config")
+    updated = dict(current)
+    updated["inferenceProvider"] = "gateway"
+    updated["disableDeploymentModeChooser"] = True
+    if not nonempty_string(updated.get("inferenceGatewayAuthScheme")):
+        updated["inferenceGatewayAuthScheme"] = selected["auth_scheme"]
+
+    meta_changed = updated_meta != original_meta
+    config_changed = updated != current
+    mode_changed = set_portable_deployment_mode_3p(dry_run, "before-enter-third-party-mode")
+    if not meta_changed and not config_changed and not mode_changed:
+        print(f"绿色版已处于 3P/API gateway[网关] 模式: {config_path}")
+        refresh_launcher_for_third_party_mode(dry_run)
+        return 0
+
+    if dry_run:
+        if meta_changed:
+            print(f"[dry-run] 将把当前 3P 配置设为: {selected['id']} ({meta_path})")
+        if config_changed:
+            print(f"[dry-run] 将启用 3P/API gateway[网关] 模式: {config_path}")
+        refresh_launcher_for_third_party_mode(dry_run)
+        return 0
+
+    if meta_changed:
+        meta_path.parent.mkdir(parents=True, exist_ok=True)
+        if meta_path.exists():
+            backup = backup_file(meta_path, "before-enter-third-party-mode")
+            print(f"已备份 Claude 第三方推理配置元数据: {backup}")
+        save_json(meta_path, meta)
+        print(f"已设置当前 3P 配置: {selected['name']} ({selected['id']})")
+
+    if config_changed:
+        if config_path.exists():
+            backup = backup_file(config_path, "before-enter-third-party-mode")
+            print(f"已备份 Claude 第三方大模型推理配置: {backup}")
+        save_json(config_path, updated)
+        print(f"已启用 3P/API gateway[网关] 模式: {config_path}")
+
+    refresh_launcher_for_third_party_mode(dry_run)
+    print("请完全关闭 Claude zh-CN 后重新启动，让模式切换生效。")
+    return 0
+
+
+def clear_portable_deployment_mode(dry_run: bool = False) -> bool:
+    config_path = portable_user_data_dir() / "claude_desktop_config.json"
+    current = load_json_dict(config_path, backup_invalid=True, label="Claude desktop config")
+    if "deploymentMode" not in current:
+        return False
+
+    updated = dict(current)
+    previous = updated.pop("deploymentMode", None)
+    if dry_run:
+        print(f"[dry-run] 将移除 Claude Desktop 主配置 deploymentMode={previous}: {config_path}")
+        return True
+
+    if config_path.exists():
+        backup = backup_file(config_path, "before-exit-third-party-mode")
+        print(f"已备份 Claude Desktop 主配置: {backup}")
+    save_json(config_path, updated)
+    print(f"已移除 Claude Desktop 主配置 deploymentMode={previous}: {config_path}")
+    return True
+
+
+def clear_disable_deployment_mode_chooser(data_dir: Path, dry_run: bool = False) -> int:
+    changed = 0
+    for entry in third_party_config_entries(data_dir):
+        config_path = entry["path"]
+        current = load_json_dict(config_path, backup_invalid=True, label="Claude third-party config")
+        if "disableDeploymentModeChooser" not in current:
+            continue
+
+        updated = dict(current)
+        previous = updated.pop("disableDeploymentModeChooser", None)
+        changed += 1
+        if dry_run:
+            print(f"[dry-run] 将取消跳过登录模式选择 ({previous}): {config_path}")
+            continue
+
+        if config_path.exists():
+            backup = backup_file(config_path, "before-exit-third-party-mode")
+            print(f"已备份 Claude 第三方大模型推理配置: {backup}")
+        save_json(config_path, updated)
+        print(f"已取消跳过登录模式选择并保留 3P gateway[网关] 配置: {config_path}")
+    return changed
+
+
+def restore_gateway_provider_markers(data_dir: Path, dry_run: bool = False) -> int:
+    changed = 0
+    for entry in third_party_config_entries(data_dir):
+        config_path = entry["path"]
+        current = load_json_dict(config_path, backup_invalid=True, label="Claude third-party config")
+        if current.get("inferenceProvider") == "gateway":
+            continue
+        if not nonempty_string(current.get("inferenceGatewayBaseUrl")):
+            continue
+
+        updated = dict(current)
+        updated["inferenceProvider"] = "gateway"
+        changed += 1
+        if dry_run:
+            print(f"[dry-run] 将恢复 3P gateway[网关] 配置标记: {config_path}")
+            continue
+
+        if config_path.exists():
+            backup = backup_file(config_path, "before-restore-gateway-provider")
+            print(f"已备份 Claude 第三方大模型推理配置: {backup}")
+        save_json(config_path, updated)
+        print(f"已恢复 3P gateway[网关] 配置标记: {config_path}")
+    return changed
+
+
+def exit_third_party_mode(dry_run: bool = False) -> int:
+    data_dir = primary_third_party_data_dir()
+    mode_changed = clear_portable_deployment_mode(dry_run)
+    provider_changed = restore_gateway_provider_markers(data_dir, dry_run)
+    chooser_changed = clear_disable_deployment_mode_chooser(data_dir, dry_run)
+
+    if not mode_changed and provider_changed == 0 and chooser_changed == 0:
+        print("绿色版未强制 3P/API gateway[网关] 模式。")
+    else:
+        print("已退出强制 3P/API gateway[网关] 模式，保留 gateway[网关] 配置以便登录页显示两种模式。")
+
+    if not dry_run:
+        clear_portable_frontend_cache()
+    else:
+        print("[dry-run] 将清理绿色版前端缓存。")
+    refresh_launcher_for_third_party_mode(dry_run)
+    print("请完全关闭 Claude zh-CN 后重新启动；下次应恢复 Anthropic 登录/模式选择入口。")
     return 0
 
 
@@ -2103,7 +2561,9 @@ def third_party_config_wizard() -> int:
         print("1. 保持全新，不导入也不修改第三方大模型推理配置")
         print("2. 同步现有 Claude Desktop 配置库[configLibrary] 到绿色版")
         print("3. 从 Claude Code 配置生成 Desktop gateway[网关] 配置")
-        print("4. 重新显示检测到的配置")
+        print("4. 进入 3P/API gateway[网关] 模式")
+        print("5. 退出 3P/API gateway[网关] 模式，恢复 Anthropic 登录/模式选择")
+        print("6. 重新显示检测到的配置")
         print("0. 返回")
         choice = prompt_line("请选择: ")
         if choice is None:
@@ -2146,6 +2606,10 @@ def third_party_config_wizard() -> int:
                 continue
             return apply_third_party_inference_config(False)
         if choice == "4":
+            return enter_third_party_mode(False)
+        if choice == "5":
+            return exit_third_party_mode(False)
+        if choice == "6":
             print()
             show_third_party_inference_config()
             continue
@@ -2391,6 +2855,78 @@ def sha256_blocks(data: bytes, block_size: int) -> list[str]:
     return [sha256_hex(data[index : index + block_size]) for index in range(0, len(data), block_size)]
 
 
+def asar_header_prefix(header_json_size: int) -> bytes:
+    padding_size = (4 - (header_json_size % 4)) % 4
+    padded_json_size = header_json_size + padding_size
+    return struct.pack("<IIII", 4, 8 + padded_json_size, 4 + padded_json_size, header_json_size)
+
+
+def patch_asar_file_bytes(
+    asar: Path,
+    target_path: str,
+    patcher: Any,
+) -> tuple[bool, str, str]:
+    data = asar.read_bytes()
+    json_start, json_end, content_base, header = parse_asar(data)
+    old_header_hash = sha256_hex(data[json_start:json_end])
+    entries = asar_file_entries(header)
+    entry_by_path = {path: entry for path, entry in entries}
+    target_entry = entry_by_path.get(target_path)
+    if not target_entry:
+        raise SystemExit(f"Cannot patch ASAR because {target_path} was not found.")
+
+    original_chunks: dict[str, bytes] = {}
+    for path, entry in entries:
+        try:
+            offset = content_base + int(entry["offset"])
+            size = int(entry["size"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        original_chunks[path] = data[offset : offset + size]
+
+    original_target = original_chunks.get(target_path)
+    if original_target is None:
+        raise SystemExit(f"Cannot patch ASAR because {target_path} has no packed content.")
+
+    patched_target = patcher(original_target)
+    if patched_target == original_target:
+        return False, old_header_hash, old_header_hash
+
+    sorted_entries = sorted(
+        ((path, entry) for path, entry in entries if path in original_chunks),
+        key=lambda item: int(item[1]["offset"]),
+    )
+    offset = 0
+    chunks: list[bytes] = []
+    for path, entry in sorted_entries:
+        chunk = patched_target if path == target_path else original_chunks[path]
+        entry["offset"] = str(offset)
+        entry["size"] = len(chunk)
+        integrity = entry.get("integrity")
+        if isinstance(integrity, dict):
+            block_size = int(integrity.get("blockSize") or 4194304)
+            integrity["algorithm"] = integrity.get("algorithm") or "SHA256"
+            integrity["hash"] = sha256_hex(chunk)
+            integrity["blockSize"] = block_size
+            integrity["blocks"] = sha256_blocks(chunk, block_size)
+        chunks.append(chunk)
+        offset += len(chunk)
+
+    header_json = json.dumps(header, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    prefix = asar_header_prefix(len(header_json))
+    padding = b"\0" * ((4 - (len(header_json) % 4)) % 4)
+    tmp = asar.with_suffix(asar.suffix + ".tmp")
+    tmp.write_bytes(prefix + header_json + padding + b"".join(chunks))
+    try:
+        os.replace(tmp, asar)
+    except PermissionError:
+        if tmp.exists():
+            tmp.unlink()
+        raise
+
+    return True, old_header_hash, sha256_hex(header_json)
+
+
 def patch_asar_file_content_and_integrity(
     asar: Path,
     old_token: bytes,
@@ -2556,10 +3092,12 @@ def patch_hardcoded_desktop_menu_strings(app_dir: Path, dry_run: bool = False) -
         "Write Main Process Heap Snapshot": "写入主进程堆快照",
         "Record Memory Trace (auto-stop)": "内存跟踪(自动停止)",
     }
-    replacements = [
-        (source.encode("utf-8"), padded_utf8_replacement(source, target))
-        for source, target in menu_replacements.items()
-    ]
+    replacements: list[tuple[bytes, bytes]] = []
+    for source, target in menu_replacements.items():
+        try:
+            replacements.append((source.encode("utf-8"), padded_utf8_replacement(source, target)))
+        except ValueError as exc:
+            print(f"跳过过长的桌面菜单替换: {exc}")
 
     counts = count_asar_tokens(asar, [source for source, _ in replacements])
     total = sum(counts.values())
@@ -3141,19 +3679,43 @@ def apply_user_settings(target_dir: Path) -> int:
     return 0
 
 
-def initialize_tool(target_dir: Path) -> int:
-    print("正在初始化 WIN CC Desktop zh-CN Portable...")
-    if target_dir.exists():
-        apply_locale_resources(target_dir, False)
-        apply_cowork_compat(target_dir, False)
-    else:
-        print(f"尚未生成汉化版程序: {target_dir}")
-        print("如果要创建中文绿色版，请先运行“更新并重新汉化一次”。")
+def initialize_build_args(target_dir: Path) -> argparse.Namespace:
+    return argparse.Namespace(
+        source=None,
+        target_dir=target_dir,
+        download_msix=True,
+        force_download=False,
+        in_place=False,
+        dry_run=False,
+    )
+
+
+def build_patched_app(args: argparse.Namespace) -> Path:
+    app_dir = prepare_app(args)
+    apply_locale_resources(app_dir, False)
+    apply_cowork_compat(app_dir, False)
     set_user_locale(False)
     enable_developer_mode(False)
     ensure_portable_user_data_migrated()
-    if target_dir.exists():
+    verify(app_dir)
+    create_shortcuts(app_dir, False)
+    return app_dir
+
+
+def initialize_tool(target_dir: Path) -> int:
+    print("正在初始化 WIN CC Desktop zh-CN Portable...")
+    if app_exe(target_dir.expanduser()):
+        apply_locale_resources(target_dir, False)
+        apply_cowork_compat(target_dir, False)
+        set_user_locale(False)
+        enable_developer_mode(False)
+        ensure_portable_user_data_migrated()
         create_shortcuts(target_dir)
+    else:
+        print(f"尚未生成汉化版程序: {target_dir}")
+        print("首次安装将自动下载或复用官方 Claude Desktop，并创建中文绿色版。")
+        build_patched_app(initialize_build_args(target_dir))
+    apply_third_party_inference_config(False, force_mode=False)
     show_oauth_protocol()
     print("初始化完成。")
     return 0
@@ -3279,6 +3841,8 @@ def main() -> int:
     parser.add_argument("--check-third-party-sources", action="store_true", help="Check whether reusable third-party model inference config exists")
     parser.add_argument("--third-party-wizard", action="store_true", help="Open the third-party model inference config wizard")
     parser.add_argument("--apply-third-party-inference", action="store_true", help="Generate Desktop gateway config from Claude Code settings")
+    parser.add_argument("--enter-third-party-mode", action="store_true", help="Force the portable profile to enter third-party gateway/API mode")
+    parser.add_argument("--exit-third-party-mode", action="store_true", help="Stop forcing third-party gateway/API mode and restore Anthropic sign-in/mode chooser")
     parser.add_argument("--show-oauth-protocol", action="store_true", help="Show current claude:// protocol handler")
     parser.add_argument("--prepare-oauth-login", action="store_true", help="Temporarily point claude:// OAuth callback to the zh-CN launcher")
     parser.add_argument("--restore-oauth-protocol", action="store_true", help="Restore claude:// protocol handler from the latest backup")
@@ -3317,6 +3881,10 @@ def main() -> int:
         return third_party_config_wizard()
     if args.apply_third_party_inference:
         return apply_third_party_inference_config(False)
+    if args.enter_third_party_mode:
+        return enter_third_party_mode(False)
+    if args.exit_third_party_mode:
+        return exit_third_party_mode(False)
     if args.show_oauth_protocol:
         return show_oauth_protocol()
     if args.prepare_oauth_login:
@@ -3349,13 +3917,16 @@ def main() -> int:
     require_file(FRONTEND_TRANSLATION)
     require_file(DESKTOP_TRANSLATION)
 
-    app_dir = prepare_app(args)
-    apply_locale_resources(app_dir, args.dry_run)
-    apply_cowork_compat(app_dir, args.dry_run)
-    set_user_locale(args.dry_run)
-    enable_developer_mode(args.dry_run)
-    verify(app_dir)
-    create_shortcuts(app_dir, args.dry_run)
+    if args.dry_run:
+        app_dir = prepare_app(args)
+        apply_locale_resources(app_dir, args.dry_run)
+        apply_cowork_compat(app_dir, args.dry_run)
+        set_user_locale(args.dry_run)
+        enable_developer_mode(args.dry_run)
+        verify(app_dir)
+        create_shortcuts(app_dir, args.dry_run)
+    else:
+        app_dir = build_patched_app(args)
 
     if args.launch and not args.dry_run:
         launch(app_dir)

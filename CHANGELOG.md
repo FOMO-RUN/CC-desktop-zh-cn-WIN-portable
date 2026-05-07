@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.3.1 - 2026-05-07
+
+### Added
+
+- 首次安装 / 初始化现在会自动安装或修复中文绿色版，并从 Claude Code 预置 Desktop gateway[网关] 配置，但默认保留 Anthropic 登录和 Gateway 两种模式选择。
+- 新增显式 3P/API 模式切换：菜单 `12` 进入 3P/API 模式，菜单 `13` 退出强制 3P/API 模式并保留 gateway[网关] 配置。
+- 登录页 / 首次模式选择页新增运行时中文兜底，补齐 `You can change this later by signing out.`、`Or continue with Gateway`、Privacy Policy 新标签页提示等英文残留。
+
+### Changed
+
+- 启动器固定使用 `%APPDATA%\ClaudeZhCN-3p` 作为绿色版用户数据目录，避免被误写成 `CLAUDE_USER_DATA_DIR=1` 或复用官方数据空间。
+- 从 Claude Code 生成 gateway[网关] 配置时，不再默认强制跳过登录模式选择；需要直进 3P/API 时由用户显式选择。
+- 退出 3P/API 模式时只移除强制模式字段和跳过模式选择字段，继续保留 `configLibrary` 中的 gateway[网关] 地址、凭据和认证方式。
+
+### Fixed
+
+- 修复生成第三方推理配置元数据时，首次写入没有备份文件会触发 `UnboundLocalError: backup` 的问题。
+- 修复首次安装后同步了 API / gateway[网关] 配置但界面没有显示可选 Gateway 入口的问题。
+- 改进前端缓存清理和登录页补丁注入，减少更新后旧英文或旧模式页面残留。
+
 ## v0.2.5 - 2026-05-06
 
 ### Fixed

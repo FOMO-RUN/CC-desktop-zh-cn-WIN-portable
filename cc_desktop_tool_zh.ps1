@@ -80,7 +80,7 @@ function Start-PatchedClaude {
     Write-Host "工具窗口可以关闭，也可以按回车返回菜单。" -ForegroundColor Yellow
   } else {
     Write-Host "未找到汉化版 Claude: $Exe" -ForegroundColor Red
-    Write-Host "请先选择 4 更新并重新汉化一次。" -ForegroundColor Yellow
+    Write-Host "请先选择 1 首次安装 / 初始化，或选择 4 更新并重新汉化一次。" -ForegroundColor Yellow
   }
 }
 
@@ -251,10 +251,10 @@ function Clean-Menu {
 
 while ($true) {
   Show-Header
-  Write-Host "  1. 初始化 / 首次运行检查 - 应用基础设置、迁移旧绿色版数据、重建启动器和快捷方式"
+  Write-Host "  1. 首次安装 / 初始化 - 自动安装/修复，并预置 gateway[网关] 配置但保留登录模式选择"
   Write-Host "  2. 启动汉化版 - 直接打开当前已生成的 Claude zh-CN，不检查更新"
   Write-Host "  3. 检查更新 - 只比较官方最新版和本地汉化版版本，不下载、不修改"
-  Write-Host "  4. 更新并重新汉化一次 - 下载或复用官方包，重建中文绿色版并重新打补丁"
+  Write-Host "  4. 更新并重新汉化一次 - 已安装后用于更新或强制重建中文绿色版"
   Write-Host "  5. 第三方大模型推理配置 - 配置/导入 3P 网关、API key，并可跳过登录模式选择"
   Write-Host "  6. 导入 / 同步配置 - 在官方版、绿色版、Claude Code 之间双向同步配置，写入前备份"
   Write-Host "  7. Cowork / VM 修复 - 修复 Cowork 启动、VM bundle、残留进程和官方沙箱问题"
@@ -262,6 +262,8 @@ while ($true) {
   Write-Host "  9. 快捷方式管理 - 创建或查看桌面/开始菜单快捷方式"
   Write-Host " 10. 清理 / 重置 / 卸载 - 清理账号数据、程序副本、缓存或快捷方式"
   Write-Host " 11. 双开 / OAuth 登录修复 - 官方版和汉化版都要登录账号时，临时接管登录回调"
+  Write-Host " 12. 进入 3P/API 模式 - 使用已有 gateway[网关] 配置并跳过登录模式选择"
+  Write-Host " 13. 退出 3P/API 模式 - 恢复 Anthropic 登录/模式选择，保留 gateway[网关] 配置"
   Write-Host "  0. 退出"
   Write-Host ""
 
@@ -279,6 +281,8 @@ while ($true) {
   if ($Choice -eq "9") { Shortcut-Menu; continue }
   if ($Choice -eq "10") { Clean-Menu; continue }
   if ($Choice -eq "11") { OAuth-Menu; continue }
+  if ($Choice -eq "12") { Run-Patcher @("--enter-third-party-mode"); Pause-Menu; continue }
+  if ($Choice -eq "13") { Run-Patcher @("--exit-third-party-mode"); Pause-Menu; continue }
 
   Write-Host "未知选项: $Choice" -ForegroundColor Red
   Pause-Menu

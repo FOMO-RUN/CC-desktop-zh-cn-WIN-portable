@@ -12,10 +12,10 @@
 
 - 独立绿色副本：默认安装到 `%LOCALAPPDATA%\ClaudeZhCN\Claude`，不覆盖官方安装。
 - 中文化体验：合并前端中文资源，并补丁处理部分硬编码菜单、设置页、Code[代码] / Cowork[协作] 文案。
-- 配置选择权：第三方大模型推理配置向导可以保持全新，也可以同步 Claude Desktop 或 Claude Code 的已有配置。
+- 配置选择权：首次初始化会预置可用的 gateway[网关] 配置但保留登录模式选择；之后也可以手动进入或退出 3P/API 模式。
 - 双开登录辅助：官方版和汉化版都需要 OAuth 登录时，可以临时把 `claude://` 回调指向汉化版，登录完成后再恢复。
 - 双向同步：可以从官方 Claude Desktop / Claude Code 导入配置到绿色版，也可以把绿色版配置同步回官方数据空间；写入前会备份。
-- 可跳过登录模式选择：导入或生成配置后，工具会启用 `disableDeploymentModeChooser`，直接进入第三方大模型推理模式。
+- 可显式切换 3P/API：菜单 `12` 可使用已有 gateway[网关] 配置并跳过登录模式选择，菜单 `13` 可恢复 Anthropic 登录 / Gateway 双模式选择。
 - 原版共存：开始菜单里的原版 Claude 仍然是英文官方版，`Claude zh-CN` 快捷方式启动的是中文绿色版，并使用独立的 `%APPDATA%\ClaudeZhCN-3p` 用户数据目录避免单实例冲突。
 - Code[代码] / Cowork[协作] 共存：修复绿色版路径检测，并隔离 Cowork VM 的管道、网络和存储命名空间，降低与官方 MSIX 版同时运行时的冲突。
 - Cowork / VM 保守处理：配置同步默认不会复制 `vm_bundles`，避免每个空间额外占用 10GB+。
@@ -39,7 +39,7 @@ flowchart TD
     A -.-> I["原版 Claude Desktop 继续保留，不修改官方安装"]
 ```
 
-第三方大模型推理配置默认不会强行导入，用户自己选择：
+第三方大模型推理配置默认会尽量预置可用 gateway[网关]，但不会强制进入 3P/API 模式；是否跳过登录模式选择由用户自己选择：
 
 ```mermaid
 flowchart TD
@@ -47,9 +47,11 @@ flowchart TD
     B -- "保持全新" --> C["不导入、不修改第三方大模型推理配置"]
     B -- "同步 Desktop 配置" --> D["复制 configLibrary 并备份目标配置"]
     B -- "从 Claude Code 生成" --> E["读取 ANTHROPIC_BASE_URL 和访问令牌[token]"]
-    D --> F["启用 disableDeploymentModeChooser"]
+    D --> F["保留登录模式选择，页面同时显示 Anthropic 登录和 Gateway"]
     E --> F
-    F --> G["启动时直接进入第三方大模型推理模式"]
+    F --> G{"用户需要直进 API 模式?"}
+    G -- "菜单 12" --> H["设置 deploymentMode=3p 并跳过登录模式选择"]
+    G -- "菜单 13" --> I["移除强制 3P 字段，保留 gateway 配置"]
 ```
 
 ## 快速开始
@@ -80,9 +82,9 @@ cd C:\Users\TC\Downloads\claude-desktop-zh-cn-main
 .\cc_desktop_tool.ps1
 ```
 
-首次运行选项 `1` 会做初始化检查、旧绿色版数据迁移、应用用户设置、重建快捷方式和显示 `claude://` 回调指向。之后用选项 `4` 生成或更新汉化副本。
+首次运行选项 `1` 会自动安装或修复中文绿色版、迁移旧绿色版数据、应用用户设置、重建快捷方式、显示 `claude://` 回调指向，并预置可用的 gateway[网关] 配置。默认仍保留登录模式选择，首屏可以同时看到 Anthropic 登录和 Gateway 入口。之后用选项 `4` 生成或更新汉化副本。
 
-如果检测到可复用的第三方大模型推理配置，工具会询问是否打开配置向导。直接选 `N` 或回车即可保持全新配置，之后也可以通过菜单 `5` 再打开向导。
+如果需要强制直进 API / Gateway 模式，之后可以通过菜单 `12` 进入；如果想恢复 Anthropic 登录 / Gateway 双模式选择，可以通过菜单 `13` 退出强制模式。
 
 ## 默认路径
 
@@ -142,6 +144,8 @@ cd C:\Users\TC\Downloads\claude-desktop-zh-cn-main
 9. Shortcut manager
 10. Clean / reset / uninstall
 11. Dual launch / OAuth login repair
+12. Enter 3P/API mode
+13. Exit 3P/API mode
 0. Exit
 ```
 
@@ -159,6 +163,8 @@ cd C:\Users\TC\Downloads\claude-desktop-zh-cn-main
 9. 快捷方式管理
 10. 清理 / 重置 / 卸载
 11. 双开 / OAuth 登录修复
+12. 进入 3P/API 模式
+13. 退出 3P/API 模式
 0. 退出
 ```
 
@@ -174,7 +180,7 @@ cd C:\Users\TC\Downloads\claude-desktop-zh-cn-main
 
 ## 第三方大模型推理配置向导
 
-菜单 `5` 用来处理 Desktop 的 `Developer -> Configure Third-Party Inference[第三方大模型推理]` 配置。默认安装 / 更新不会强行导入第三方配置，只有你在向导里确认后才会写入。
+菜单 `5` 用来处理 Desktop 的 `Developer -> Configure Third-Party Inference[第三方大模型推理]` 配置。首次初始化会尽量从 Claude Code 预置 gateway[网关] 配置；菜单向导则用于后续手动同步、生成、进入或退出 3P/API 模式。
 
 向导提供几种选择：
 
@@ -182,7 +188,9 @@ cd C:\Users\TC\Downloads\claude-desktop-zh-cn-main
 1. 保持全新：不导入、不修改第三方大模型推理配置。
 2. 同步 Claude Desktop configLibrary：适合复用官方安装版里已经配置好的 Desktop 第三方大模型推理。
 3. 从 Claude Code 配置生成：读取 Claude Code 里的 gateway[网关] 地址和访问令牌[token]，转换成 Desktop 可用的配置。
-4. 只查看：显示检测到的配置来源和当前绿色版配置。
+4. 进入 3P/API gateway[网关] 模式：使用已有配置并跳过登录模式选择。
+5. 退出 3P/API gateway[网关] 模式：恢复 Anthropic 登录 / Gateway 双模式选择，并保留 gateway[网关] 配置。
+6. 只查看：显示检测到的配置来源和当前绿色版配置。
 ```
 
 可能读取的 Desktop 配置库：
@@ -224,7 +232,7 @@ ANTHROPIC_API_KEY
 %LOCALAPPDATA%\ClaudeZhCN\user-data-backups
 ```
 
-导入或生成配置后，工具会启用 `disableDeploymentModeChooser`，让绿色版启动时直接进入第三方大模型推理模式，减少第一次启动时的登录模式选择。敏感值在控制台输出时会打码。
+导入或生成配置后，工具会保留 `configLibrary` 中的 gateway[网关] 地址、凭据和认证方式，但默认不再强制跳过登录模式选择。需要直进 API / Gateway 时，使用主菜单 `12` 或向导里的“进入 3P/API 模式”；想恢复双模式选择时，使用主菜单 `13` 或向导里的“退出 3P/API 模式”。敏感值在控制台输出时会打码。
 
 ## 双开 / OAuth 登录修复
 
@@ -280,7 +288,7 @@ Windows 版本的 Code[代码] / Cowork[协作] 页面会检测应用是否通�
 Cowork requires Claude Desktop be installed with our modern installer
 ```
 
-选项 `9` 会把该检测改为读取绿色版专用环境变量，并同步更新 ASAR 完整性信息与 `Claude.exe` 中记录的 ASAR hash。
+菜单 `7` 会把该检测改为读取绿色版专用环境变量，并同步更新 ASAR 完整性信息与 `Claude.exe` 中记录的 ASAR hash。
 
 为了让官方 MSIX 版和中文绿色版可以同时运行，工具还会把绿色版的 Cowork VM 命名空间改成独立名称：
 
@@ -304,11 +312,11 @@ cowork-vm-store   -> ccdesk-vm-store
 
 请通过桌面或开始菜单中的 `Claude zh-CN` 快捷方式启动。不要直接双击绿色副本里的 `Claude.exe`，否则可能绕过启动器环境变量和独立用户数据参数。
 
-菜单 `10` 是高级修复项，只用于官方 MSIX 版在使用绿色版后出现 Cowork 启动失败的情况。它会尝试启动官方 `CoworkVMService`，并把绿色版生成的 `smol-bin.vhdx` 同步到官方 MSIX 沙箱目录。默认汉化 / 更新流程不会自动触碰官方版沙箱数据。
+菜单 `7` 里的官方 MSIX 高级修复项，只用于官方 MSIX 版在使用绿色版后出现 Cowork 启动失败的情况。它会尝试启动官方 `CoworkVMService`，并把绿色版生成的 `smol-bin.vhdx` 同步到官方 MSIX 沙箱目录。默认汉化 / 更新流程不会自动触碰官方版沙箱数据。
 
 ## 清理
 
-选项 `4` 会清理用户配置 / 账号数据。清理时不是永久删除，而是移动到：
+菜单 `10` 的子选项 `1` 会清理用户配置 / 账号数据。清理时不是永久删除，而是移动到：
 
 ```text
 %LOCALAPPDATA%\ClaudeZhCN\user-data-backups
@@ -316,7 +324,7 @@ cowork-vm-store   -> ccdesk-vm-store
 
 这会让应用下次启动时重新创建用户数据目录，通常需要重新登录。
 
-选项 `7` 会删除绿色版相关文件，但保留备份：
+菜单 `10` 的子选项 `2` 会删除绿色版相关文件，但保留备份：
 
 ```text
 %LOCALAPPDATA%\ClaudeZhCN\Claude
@@ -328,7 +336,7 @@ cowork-vm-store   -> ccdesk-vm-store
 开始菜单\Claude Code.lnk
 ```
 
-选项 `7` 不会删除账号数据，也不会删除 `%LOCALAPPDATA%\ClaudeZhCN\user-data-backups`。如果也要重置账号数据，请先使用选项 `4`。
+菜单 `10` 的子选项 `2` 不会删除账号数据，也不会删除 `%LOCALAPPDATA%\ClaudeZhCN\user-data-backups`。如果也要重置账号数据，请先使用子选项 `1`，或使用危险的子选项 `3` 一并清理程序和用户数据。
 
 ## 文件说明
 

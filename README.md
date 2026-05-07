@@ -1,8 +1,8 @@
 # WIN CC Desktop zh-CN Portable
 
-一键生成可与官方安装版共存的中文绿色版 CC Desktop，并支持 Claude Desktop 的第三方大模型推理 gateway[网关] 配置。
+一键生成可与官方安装版共存的中文绿色版 CC Desktop，并支持 Claude Desktop 的第三方大模型推理网关配置。
 
-当前版本：`v0.3.1`
+当前版本：`v0.3.2`
 
 它会从官方 Windows MSIX 或本机已安装应用生成一个独立中文副本，默认放在 `%LOCALAPPDATA%\ClaudeZhCN` 下运行。原版 Claude Desktop 不会被修改，汉化版和原版可以共存。
 
@@ -10,15 +10,23 @@
 
 > CC 在本项目中指 Claude / Claude Code 相关桌面体验的缩写。本项目是独立社区工具，非官方项目。发布或使用前请阅读 [DISCLAIMER.md](DISCLAIMER.md)。
 
+## v0.3.2 重点
+
+- 深度润色 Claude Code / Cowork 运行界面文案，修复 `跑步`、`努力`、`型号`、`绕过权限` 等机翻问题。
+- 将运行状态、模型菜单、推理强度菜单、操作权限菜单统一成更像中文产品的表达。
+- 清理 `Code[代码]`、`Cowork[协作]`、`New session[新会话]` 等旧补丁痕迹，改为 `代码`、`协作`、`新会话`。
+- 修复 `Webhook[被动接口]`、`OAuth[开放授权]`、`Bearer[令牌认证]` 等词典式括号标注。
+- 重新应用中文资源时会迁移旧硬编码补丁残留，不需要重新安装绿色版。
+
 ## v0.3.1 重点
 
-- 首次初始化会自动安装或修复绿色版，并预置可用 gateway[网关] 配置，但默认保留登录模式选择。
+- 首次初始化会自动安装或修复绿色版，并预置可用网关配置，但默认保留登录模式选择。
 - 主菜单已经扩展为 13 项，新增 `12. Enter 3P/API mode` 和 `13. Exit 3P/API mode`。
 - 登录页保留 Anthropic 官方登录和 Gateway 两种入口，不再因为同步 API 配置就强制只显示一种模式。
 - 需要直进 API / Gateway 时，选主菜单 `12`；需要恢复双模式选择时，选主菜单 `13`。
 - 修复第三方推理配置元数据备份时的 `UnboundLocalError: backup`。
 - 补齐登录页中文提示，包括 `You can change this later by signing out.`、隐私政策提示和 `Or continue with Gateway`。
-- 修复 Code[代码] / Cowork[协作] 的绿色版检测、独立用户数据目录、VM 命名空间和启动器兼容。
+- 修复 Code / Cowork 的绿色版检测、独立用户数据目录、VM 命名空间和启动器兼容。
 
 ## 快速开始
 
@@ -44,11 +52,11 @@ cd C:\Users\TC\Downloads\claude-desktop-zh-cn-main
 常用选择：
 
 ```text
-1  首次安装 / 初始化：安装或修复绿色版，预置 gateway[网关] 配置，并保留登录模式选择
+1  首次安装 / 初始化：安装或修复绿色版，预置网关配置，并保留登录模式选择
 2  启动汉化版：直接打开当前 Claude zh-CN
 4  更新并重新汉化：升级或重建中文绿色版
-5  第三方大模型推理配置：导入、生成、查看 gateway[网关] 配置
-12 进入 3P/API 模式：使用已有 gateway[网关] 并跳过登录模式选择
+5  第三方大模型推理配置：导入、生成、查看网关配置
+12 进入 3P/API 模式：使用已有 网关 并跳过登录模式选择
 13 退出 3P/API 模式：恢复 Anthropic 登录 / Gateway 双模式选择
 ```
 
@@ -59,7 +67,7 @@ cd C:\Users\TC\Downloads\claude-desktop-zh-cn-main
 2. 启动汉化版
 ```
 
-如果已经同步了 API / Gateway 配置，但启动后仍然停在模式选择页，这是正常的：`v0.3.1` 默认保留双模式选择。想直接进入 API / Gateway，请在主菜单选择 `12`。
+如果已经同步了 API / Gateway 配置，但启动后仍然停在模式选择页，这是正常的：`v0.3.2` 默认保留双模式选择。想直接进入 API / Gateway，请在主菜单选择 `12`。
 
 ## 原理图
 
@@ -69,12 +77,12 @@ flowchart TD
     B --> C["注入 zh-CN 语言白名单"]
     C --> D["合并 frontend / desktop / statsig<br/>中文资源"]
     D --> E["补丁硬编码英文文案<br/>登录页 / 菜单 / 设置页"]
-    E --> F["修复 Code[代码] / Cowork[协作]<br/>绿色版检测与 VM 命名空间"]
+    E --> F["修复 Code / Cowork<br/>绿色版检测与 VM 命名空间"]
     F --> G["创建兼容启动器<br/>launch_claude_zh_cn.vbs"]
     G --> H["使用独立用户数据<br/>%APPDATA%\\ClaudeZhCN-3p"]
     H --> I["Claude zh-CN 快捷方式"]
     A -.->|不修改| J["官方 Claude Desktop<br/>继续保留"]
-    K["Claude Code 配置<br/>ANTHROPIC_BASE_URL / TOKEN"] --> L["生成 Desktop gateway[网关]<br/>configLibrary"]
+    K["Claude Code 配置<br/>ANTHROPIC_BASE_URL / TOKEN"] --> L["生成 Desktop 网关<br/>configLibrary"]
     M["官方 Desktop 3P 配置库"] --> L
     L --> H
 ```
@@ -85,7 +93,7 @@ flowchart TD
 flowchart TD
     A["下载并解压 Release 包"] --> B["双击 cc_desktop_tool.bat<br/>或 cc_desktop_tool_zh.bat"]
     B --> C["选择 1 首次安装 / 初始化"]
-    C --> D["工具生成中文绿色版<br/>创建快捷方式<br/>预置 gateway[网关] 配置"]
+    C --> D["工具生成中文绿色版<br/>创建快捷方式<br/>预置网关配置"]
     D --> E["选择 2 启动 Claude zh-CN"]
     E --> F{"你想怎么进入?"}
     F -- "官方账号 / 保留选择页" --> G["保持默认<br/>登录页显示 Anthropic 和 Gateway"]
@@ -123,7 +131,7 @@ flowchart TD
 中文菜单：
 
 ```text
-1. 首次安装 / 初始化 - 自动安装/修复，并预置 gateway[网关] 配置但保留登录模式选择
+1. 首次安装 / 初始化 - 自动安装/修复，并预置网关配置但保留登录模式选择
 2. 启动汉化版 - 直接打开当前已生成的 Claude zh-CN，不检查更新
 3. 检查更新 - 只比较官方最新版和本地汉化版版本，不下载、不修改
 4. 更新并重新汉化一次 - 已安装后用于更新或强制重建中文绿色版
@@ -134,23 +142,23 @@ flowchart TD
 9. 快捷方式管理 - 创建或查看桌面/开始菜单快捷方式
 10. 清理 / 重置 / 卸载 - 清理账号数据、程序副本、缓存或快捷方式
 11. 双开 / OAuth 登录修复 - 官方版和汉化版都要登录账号时，临时接管登录回调
-12. 进入 3P/API 模式 - 使用已有 gateway[网关] 配置并跳过登录模式选择
-13. 退出 3P/API 模式 - 恢复 Anthropic 登录/模式选择，保留 gateway[网关] 配置
+12. 进入 3P/API 模式 - 使用已有网关配置并跳过登录模式选择
+13. 退出 3P/API 模式 - 恢复 Anthropic 登录/模式选择，保留网关配置
 0. 退出
 ```
 
 ## 第三方大模型推理
 
-菜单 `5` 用来处理 Desktop 的 `Developer -> Configure Third-Party Inference[第三方大模型推理]` 配置。首次初始化会尽量从 Claude Code 或已有 Desktop 配置预置 gateway[网关]，但不会强制进入 3P/API 模式。
+菜单 `5` 用来处理 Desktop 的 `Developer -> Configure Third-Party Inference` 第三方大模型推理配置。首次初始化会尽量从 Claude Code 或已有 Desktop 配置预置网关，但不会强制进入 3P/API 模式。
 
 向导提供：
 
 ```text
 1. 保持全新：不导入、不修改第三方大模型推理配置
 2. 同步 Claude Desktop configLibrary：复用官方 Desktop 已配置好的第三方推理
-3. 从 Claude Code 配置生成：读取 gateway[网关] 地址和访问令牌[token]
-4. 进入 3P/API gateway[网关] 模式：使用已有配置并跳过登录模式选择
-5. 退出 3P/API gateway[网关] 模式：恢复 Anthropic 登录 / Gateway 双模式选择
+3. 从 Claude Code 配置生成：读取 网关 地址和访问令牌
+4. 进入 3P/API 网关 模式：使用已有配置并跳过登录模式选择
+5. 退出 3P/API 网关 模式：恢复 Anthropic 登录 / Gateway 双模式选择
 6. 只查看：显示检测到的配置来源和当前绿色版配置
 ```
 
@@ -191,9 +199,9 @@ ANTHROPIC_API_KEY
 两种同步方式不同：
 
 - Desktop -> Desktop：复制同类 `configLibrary` JSON 文件，适合官方 Claude Desktop 已经配置成功的用户。
-- Claude Code -> Desktop：读取 `ANTHROPIC_BASE_URL` 和访问令牌[token] / API key，再生成 Desktop gateway[网关] 配置。
+- Claude Code -> Desktop：读取 `ANTHROPIC_BASE_URL` 和访问令牌 / API key，再生成 Desktop 网关配置。
 
-导入或生成配置后，工具会保留 gateway[网关] 地址、凭据和认证方式。敏感值在控制台输出时会打码。
+导入或生成配置后，工具会保留 网关 地址、凭据和认证方式。敏感值在控制台输出时会打码。
 
 ## 默认路径
 
@@ -271,9 +279,9 @@ vm_bundles
 
 如果没有检测到可复用配置，工具只会提示，不会写入空配置。
 
-## Code[代码] / Cowork[协作]
+## Code / Cowork
 
-Windows 版本的 Code[代码] / Cowork[协作] 页面会检测应用是否通过 MSIX / WindowsApps 路径启动。绿色版是解包运行，可能出现：
+Windows 版本的 Code / Cowork 页面会检测应用是否通过 MSIX / WindowsApps 路径启动。绿色版是解包运行，可能出现：
 
 ```text
 Cowork requires Claude Desktop be installed with our modern installer
@@ -359,7 +367,7 @@ cowork-vm-store   -> ccdesk-vm-store
 - 官方安装包、MSIX、APPX。
 - 解包后的官方应用目录。
 - `%LOCALAPPDATA%\ClaudeZhCN` 里的运行时文件、下载缓存或备份。
-- `%APPDATA%\ClaudeZhCN-3p`、`%APPDATA%\ClaudeZhCN`、`%APPDATA%\Claude`、`%APPDATA%\Claude-3p` 或 `%USERPROFILE%\.claude` 中的账号数据、访问令牌[token]、API key。
+- `%APPDATA%\ClaudeZhCN-3p`、`%APPDATA%\ClaudeZhCN`、`%APPDATA%\Claude`、`%APPDATA%\Claude-3p` 或 `%USERPROFILE%\.claude` 中的账号数据、访问令牌、API key。
 - 任何本地 `.env`、`settings.local.json`、日志、缓存。
 
 ## 参考与致谢

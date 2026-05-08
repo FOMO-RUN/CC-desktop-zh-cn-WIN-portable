@@ -1,8 +1,8 @@
 # WIN CC Desktop zh-CN Portable
 
-一键生成可与官方安装版共存的中文绿色版 CC Desktop，并支持 Claude Desktop 的第三方大模型推理网关配置。
+一键生成可与官方安装版共存的中文绿色版 CC Desktop，并支持 Claude Desktop 的 API 模式配置。
 
-当前版本：`v0.3.3`
+当前版本：`v0.3.4`
 
 它会从官方 Windows MSIX 或本机已安装应用生成一个独立中文副本，默认放在 `%LOCALAPPDATA%\ClaudeZhCN` 下运行。原版 Claude Desktop 不会被修改，汉化版和原版可以共存。
 
@@ -10,11 +10,18 @@
 
 > CC 在本项目中指 Claude / Claude Code 相关桌面体验的缩写。本项目是独立社区工具，非官方项目。发布或使用前请阅读 [DISCLAIMER.md](DISCLAIMER.md)。
 
+## v0.3.4 重点
+
+- 新增 `10. Claude Code 管理`：查看安装来源、安装/修复、更新和完全卸载 Claude Code。
+- 自动识别 Claude Code 来源：官方原生安装、WinGet、npm 全局包或 PATH 中的未知来源。
+- 安装默认使用官方 CMD 原生安装器，失败后回退 npm；每一步都会二次检测 `claude --version`，避免“提示完成但实际不可用”。
+- 完全卸载会先卸程序，删除 `~\.claude` 等配置/授权/MCP 数据前会再次确认。
+
 ## v0.3.3 重点
 
 - 修复设置页新 i18n key 漏翻导致的“改了但界面没变”问题。
 - 补齐 `Avatar`、`Instructions for Claude`、`Preferences`、通知偏好说明等设置页文案。
-- 补齐第三方推理隐私说明、Artifacts、Skills / Connectors 迁移提示、本地会话和自动 PR 设置页文案。
+- 补齐 API 模式隐私说明、Artifacts、Skills / Connectors 迁移提示、本地会话和自动 PR 设置页文案。
 - 重新应用中文资源后会写入真实运行目录的 `ion-dist/i18n/zh-CN.json`；如 Claude 正在运行，建议重启以清掉旧缓存。
 
 ## v0.3.2 重点
@@ -27,12 +34,12 @@
 
 ## v0.3.1 重点
 
-- 首次初始化会自动安装或修复绿色版，并预置可用网关配置，但默认保留登录模式选择。
-- 主菜单已经扩展为 13 项，新增 `12. Enter 3P/API mode` 和 `13. Exit 3P/API mode`。
-- 登录页保留 Anthropic 官方登录和 Gateway 两种入口，不再因为同步 API 配置就强制只显示一种模式。
-- 需要直进 API / Gateway 时，选主菜单 `12`；需要恢复双模式选择时，选主菜单 `13`。
-- 修复第三方推理配置元数据备份时的 `UnboundLocalError: backup`。
-- 补齐登录页中文提示，包括 `You can change this later by signing out.`、隐私政策提示和 `Or continue with Gateway`。
+- 首次初始化会自动安装或修复绿色版，并预置可用 API 配置，但默认保留登录模式选择。
+- 主菜单已经扩展为 14 项，`13. Enter API mode` 进入 API 模式，`14. Exit API mode` 恢复双入口。
+- 登录页保留 Anthropic 账号登录和 API 模式两个入口，不再因为同步 API 配置就强制只显示一种模式。
+- 需要直进 API 模式时，选主菜单 `13`；需要恢复双入口时，选主菜单 `14`。
+- 修复 API 配置元数据备份时的 `UnboundLocalError: backup`。
+- 补齐登录页中文提示，包括 `You can change this later by signing out.`、隐私政策提示和 `Or continue with Gateway`（或继续使用 API 模式使用）。
 - 修复 Code / Cowork 的绿色版检测、独立用户数据目录、VM 命名空间和启动器兼容。
 
 ## 快速开始
@@ -59,12 +66,13 @@ cd C:\Users\TC\Downloads\claude-desktop-zh-cn-main
 常用选择：
 
 ```text
-1  首次安装 / 初始化：安装或修复绿色版，预置网关配置，并保留登录模式选择
+1  首次安装 / 初始化：安装或修复绿色版，预置 API 配置，并保留登录模式选择
 2  启动汉化版：直接打开当前 Claude zh-CN
 4  更新并重新汉化：升级或重建中文绿色版
-5  第三方大模型推理配置：导入、生成、查看网关配置
-12 进入 3P/API 模式：使用已有 网关 并跳过登录模式选择
-13 退出 3P/API 模式：恢复 Anthropic 登录 / Gateway 双模式选择
+5  API 模式配置：导入、生成、查看 API 配置
+10 Claude Code 管理：安装、更新、检测来源或完全卸载 Claude Code
+13 进入 API 模式：使用已有 API 配置并隐藏账号登录入口
+14 退出 API 模式：恢复 Anthropic 登录 / API 模式选择
 ```
 
 首次完全卸载后重新使用时，通常只需要：
@@ -74,7 +82,7 @@ cd C:\Users\TC\Downloads\claude-desktop-zh-cn-main
 2. 启动汉化版
 ```
 
-如果已经同步了 API / Gateway 配置，但启动后仍然停在模式选择页，这是正常的：`v0.3.2` 默认保留双模式选择。想直接进入 API / Gateway，请在主菜单选择 `12`。
+如果已经同步了 API 配置，但启动后仍然停在模式选择页，这是正常的：`v0.3.2` 起默认保留双模式选择。想直接进入 API 模式，请在主菜单选择 `13`。
 
 ## 原理图
 
@@ -89,8 +97,8 @@ flowchart TD
     G --> H["使用独立用户数据<br/>%APPDATA%\\ClaudeZhCN-3p"]
     H --> I["Claude zh-CN 快捷方式"]
     A -.->|不修改| J["官方 Claude Desktop<br/>继续保留"]
-    K["Claude Code 配置<br/>ANTHROPIC_BASE_URL / TOKEN"] --> L["生成 Desktop 网关<br/>configLibrary"]
-    M["官方 Desktop 3P 配置库"] --> L
+    K["Claude Code 配置<br/>ANTHROPIC_BASE_URL / TOKEN"] --> L["生成 Desktop API 配置<br/>configLibrary"]
+    M["官方 Desktop API 配置库"] --> L
     L --> H
 ```
 
@@ -100,18 +108,36 @@ flowchart TD
 flowchart TD
     A["下载并解压 Release 包"] --> B["双击 cc_desktop_tool.bat<br/>或 cc_desktop_tool_zh.bat"]
     B --> C["选择 1 首次安装 / 初始化"]
-    C --> D["工具生成中文绿色版<br/>创建快捷方式<br/>预置网关配置"]
+    C --> D["工具生成中文绿色版<br/>创建快捷方式<br/>预置 API 配置"]
     D --> E["选择 2 启动 Claude zh-CN"]
     E --> F{"你想怎么进入?"}
-    F -- "官方账号 / 保留选择页" --> G["保持默认<br/>登录页显示 Anthropic 和 Gateway"]
-    F -- "直接 API / Gateway" --> H["返回菜单选择 12<br/>进入 3P/API 模式"]
-    H --> I["再次启动<br/>跳过登录模式选择"]
+    F -- "官方账号 / 保留选择页" --> G["保持默认<br/>登录页显示账号登录和 API 模式"]
+    F -- "直接 API 模式" --> H["返回菜单选择 13<br/>进入 API 模式"]
+    H --> I["再次启动<br/>直进 API 模式"]
     G --> J{"后续需要切换?"}
     I --> J
-    J -- "恢复双模式" --> K["选择 13<br/>退出 3P/API 模式"]
+    J -- "恢复双模式" --> K["选择 14<br/>退出 API 模式"]
     J -- "同步配置" --> L["选择 5 或 6<br/>导入 Desktop / Claude Code 配置"]
     J -- "更新程序" --> M["选择 4<br/>更新并重新汉化"]
     J -- "Cowork 异常" --> N["选择 7<br/>Cowork / VM 修复"]
+    J -- "管理 Claude Code" --> O["选择 10<br/>安装 / 更新 / 完全卸载"]
+```
+
+## Claude Code 管理
+
+菜单 `10` 用来管理 Claude Code 本体，不会修改 Claude Desktop 的官方安装版，也不会影响本工具生成的 Claude zh-CN 程序。
+
+```mermaid
+flowchart TD
+    A["选择 10<br/>Claude Code 管理"] --> B["查看安装状态"]
+    B --> C{"检测到哪种来源?"}
+    C -- "官方原生安装<br/>~\\.local\\bin / ~\\.local\\share\\claude" --> D["更新: claude update<br/>卸载: 删除原生安装文件"]
+    C -- "WinGet<br/>Anthropic.ClaudeCode" --> E["更新: winget upgrade<br/>卸载: winget uninstall"]
+    C -- "npm<br/>@anthropic-ai/claude-code" --> F["更新: npm install -g @latest<br/>卸载: npm uninstall -g"]
+    C -- "未安装" --> G["安装 / 修复<br/>官方 CMD 原生安装器优先<br/>失败后回退 npm"]
+    D --> H["可选择保留或删除<br/>~\\.claude 配置/授权/MCP 数据"]
+    E --> H
+    F --> H
 ```
 
 ## 完整菜单
@@ -119,53 +145,55 @@ flowchart TD
 英文菜单：
 
 ```text
-1. First install / initialize - install/repair and preseed gateway config while keeping the mode chooser
+1. First install / initialize - install/repair and preseed API config while keeping the mode chooser
 2. Launch zh-CN Claude
 3. Check for updates
 4. Update / rebuild zh-CN portable Claude
-5. Third-party model inference config
+5. API mode config
 6. Import / sync config
 7. Cowork / VM repair
 8. Show paths / diagnostics
 9. Shortcut manager
-10. Clean / reset / uninstall
-11. Dual launch / OAuth login repair
-12. Enter 3P/API mode
-13. Exit 3P/API mode
+10. Claude Code manager
+11. Clean / reset / uninstall
+12. Dual launch / OAuth login repair
+13. Enter API mode
+14. Exit API mode
 0. Exit
 ```
 
 中文菜单：
 
 ```text
-1. 首次安装 / 初始化 - 自动安装/修复，并预置网关配置但保留登录模式选择
+1. 首次安装 / 初始化 - 自动安装/修复，并预置 API 配置但保留登录模式选择
 2. 启动汉化版 - 直接打开当前已生成的 Claude zh-CN，不检查更新
 3. 检查更新 - 只比较官方最新版和本地汉化版版本，不下载、不修改
 4. 更新并重新汉化一次 - 已安装后用于更新或强制重建中文绿色版
-5. 第三方大模型推理配置 - 配置/导入 3P 网关、API key，并可跳过登录模式选择
+5. API 模式配置 - 配置/导入 API 地址和 API key，并可直进 API 模式
 6. 导入 / 同步配置 - 在官方版、绿色版、Claude Code 之间双向同步配置，写入前备份
 7. Cowork / VM 修复 - 修复 Cowork 启动、VM bundle、残留进程和官方沙箱问题
-8. 查看路径 / 诊断 - 显示程序、用户数据、3P 配置、快捷方式和 OAuth 回调位置
+8. 查看路径 / 诊断 - 显示程序、用户数据、API 配置、快捷方式和 OAuth 回调位置
 9. 快捷方式管理 - 创建或查看桌面/开始菜单快捷方式
-10. 清理 / 重置 / 卸载 - 清理账号数据、程序副本、缓存或快捷方式
-11. 双开 / OAuth 登录修复 - 官方版和汉化版都要登录账号时，临时接管登录回调
-12. 进入 3P/API 模式 - 使用已有网关配置并跳过登录模式选择
-13. 退出 3P/API 模式 - 恢复 Anthropic 登录/模式选择，保留网关配置
+10. Claude Code 管理 - 安装、更新、检测来源或完全卸载 Claude Code
+11. 清理 / 重置 / 卸载 - 清理账号数据、程序副本、缓存或快捷方式
+12. 双开 / OAuth 登录修复 - 官方版和汉化版都要登录账号时，临时接管登录回调
+13. 进入 API 模式 - 使用已有 API 配置并隐藏账号登录入口
+14. 退出 API 模式 - 恢复 Anthropic 登录/模式选择，保留 API 配置
 0. 退出
 ```
 
-## 第三方大模型推理
+## API 模式配置
 
-菜单 `5` 用来处理 Desktop 的 `Developer -> Configure Third-Party Inference` 第三方大模型推理配置。首次初始化会尽量从 Claude Code 或已有 Desktop 配置预置网关，但不会强制进入 3P/API 模式。
+菜单 `5` 用来处理 Desktop 的 `Developer -> Configure Third-Party Inference` 配置。首次初始化会尽量从 Claude Code 或已有 Desktop 配置预置 API 配置，但不会强制进入 API 模式。
 
 向导提供：
 
 ```text
-1. 保持全新：不导入、不修改第三方大模型推理配置
-2. 同步 Claude Desktop configLibrary：复用官方 Desktop 已配置好的第三方推理
-3. 从 Claude Code 配置生成：读取 网关 地址和访问令牌
-4. 进入 3P/API 网关 模式：使用已有配置并跳过登录模式选择
-5. 退出 3P/API 网关 模式：恢复 Anthropic 登录 / Gateway 双模式选择
+1. 保持全新：不导入、不修改 API 配置
+2. 同步 Claude Desktop configLibrary：复用官方 Desktop 已配置好的 API 配置
+3. 从 Claude Code 配置生成：读取 API 地址和访问令牌
+4. 进入 API 模式：使用已有配置并隐藏账号登录入口
+5. 退出 API 模式：恢复 Anthropic 账号登录 / API 模式选择
 6. 只查看：显示检测到的配置来源和当前绿色版配置
 ```
 
@@ -206,9 +234,9 @@ ANTHROPIC_API_KEY
 两种同步方式不同：
 
 - Desktop -> Desktop：复制同类 `configLibrary` JSON 文件，适合官方 Claude Desktop 已经配置成功的用户。
-- Claude Code -> Desktop：读取 `ANTHROPIC_BASE_URL` 和访问令牌 / API key，再生成 Desktop 网关配置。
+- Claude Code -> Desktop：读取 `ANTHROPIC_BASE_URL` 和访问令牌 / API key，再生成 Desktop API 配置。
 
-导入或生成配置后，工具会保留 网关 地址、凭据和认证方式。敏感值在控制台输出时会打码。
+导入或生成配置后，工具会保留 API 地址、凭据和认证方式。敏感值在控制台输出时会打码。
 
 ## 默认路径
 
@@ -271,9 +299,9 @@ ANTHROPIC_API_KEY
 2. 官方 Desktop -> 绿色版
 3. 绿色版 -> 官方 Desktop
 4. 自选来源和目标同步轻量用户数据
-5. 同步 3P 配置库到绿色版
-6. 同步绿色版 3P 配置库到官方 Desktop
-7. 从 Claude Code 生成绿色版 3P 配置
+5. 同步 API 配置库到绿色版
+6. 同步绿色版 API 配置库到官方 Desktop
+7. 从 Claude Code 生成绿色版 API 配置
 ```
 
 轻量用户数据同步会尽量包含登录态、Local Storage、IndexedDB、`configLibrary`、MCP / 应用配置等，但默认排除：
@@ -312,7 +340,7 @@ cowork-vm-store   -> ccdesk-vm-store
 
 ## 双开 / OAuth 登录修复
 
-官方 Claude Desktop 和汉化绿色版可以各自使用账号登录或第三方大模型推理模式。官方版如何登录不归本工具管理；汉化版默认使用独立用户数据目录：
+官方 Claude Desktop 和汉化绿色版可以各自使用账号登录或 API 模式。官方版如何登录不归本工具管理；汉化版默认使用独立用户数据目录：
 
 ```text
 %APPDATA%\ClaudeZhCN-3p
@@ -381,7 +409,7 @@ cowork-vm-store   -> ccdesk-vm-store
 
 本项目的中文资源整理与补丁思路参考了 [javaht/claude-desktop-zh-cn](https://github.com/javaht/claude-desktop-zh-cn)。感谢原项目作者和贡献者对 Claude Desktop 中文化实践的探索与分享。
 
-感谢 [@chrichuang218](https://github.com/chrichuang218) 的 fork 和 PR 对翻译修正、第三方配置复用、下载回退以及 Cowork 共存修复思路提供的改进参考。本项目已在保留用户选择权和配置备份的前提下吸收相关优点。
+感谢 [@chrichuang218](https://github.com/chrichuang218) 的 fork 和 PR 对翻译修正、API 配置复用、下载回退以及 Cowork 共存修复思路提供的改进参考。本项目已在保留用户选择权和配置备份的前提下吸收相关优点。
 
 本项目在此基础上面向 Windows 绿色版 / 便携化使用场景做了独立实现与扩展。
 

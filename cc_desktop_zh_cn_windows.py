@@ -26,6 +26,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
@@ -700,10 +701,10 @@ def show_user_data(target_dir: Path) -> int:
     for path in user_data_paths():
         print_path_info("用户数据", path)
     print()
-    print("Claude 第三方大模型推理数据路径:")
+    print("Claude API 模式数据路径:")
     for path in third_party_data_paths():
-        print_path_info("第三方推理数据", path)
-        print_path_info("第三方推理configLibrary 配置库", third_party_config_library_dir(path))
+        print_path_info("API 模式数据", path)
+        print_path_info("API 配置库", third_party_config_library_dir(path))
     print()
     print("配置文件:")
     for path in config_paths():
@@ -754,6 +755,8 @@ def claude_code_command() -> Path | None:
             Path.home() / ".local/bin/claude.exe",
             Path.home() / ".local/bin/claude.cmd",
             Path.home() / ".local/bin/claude.bat",
+            local_app_data() / "Microsoft/WinGet/Links/claude.exe",
+            local_app_data() / "Microsoft/WinGet/Links/claude.cmd",
             roaming_app_data() / "npm/claude.cmd",
             roaming_app_data() / "npm/claude.exe",
             roaming_app_data() / "npm/claude.bat",
@@ -769,6 +772,355 @@ def claude_code_command() -> Path | None:
         if candidate.exists() and candidate.suffix.lower() in {".exe", ".cmd", ".bat"}:
             return candidate
     return None
+
+
+CLAUDE_CODE_WINGET_ID = "Anthropic.ClaudeCode"
+CLAUDE_CODE_NPM_PACKAGE = "@anthropic-ai/claude-code"
+CLAUDE_CODE_NATIVE_CMD_INSTALLER_URL = "https://claude.ai/install.cmd"
+
+
+def command_output(cmd: list[str], timeout: int = 60) -> tuple[int, str]:
+    try:
+        result = subprocess.run(
+            cmd,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+            timeout=timeout,
+        )
+        return result.returncode, result.stdout.strip()
+    except FileNotFoundError:
+        return 127, ""
+    except subprocess.TimeoutExpired as exc:
+        output = exc.stdout if isinstance(exc.stdout, str) else ""
+        return 124, output.strip()
+
+
+def claude_code_command_paths() -> list[Path]:
+    candidates: list[Path] = []
+    code, output = command_output(["where.exe", "claude"], timeout=15)
+    if code == 0:
+        candidates.extend(Path(line.strip()) for line in output.splitlines() if line.strip())
+    command = shutil.which("claude")
+    if command:
+        candidates.append(Path(command))
+    candidates.extend(
+        [
+            Path.home() / ".local/bin/claude.exe",
+            Path.home() / ".local/bin/claude.cmd",
+            Path.home() / ".local/bin/claude.bat",
+            local_app_data() / "Microsoft/WinGet/Links/claude.exe",
+            local_app_data() / "Microsoft/WinGet/Links/claude.cmd",
+            roaming_app_data() / "npm/claude.cmd",
+            roaming_app_data() / "npm/claude.exe",
+            roaming_app_data() / "npm/claude.bat",
+        ]
+    )
+    seen: set[str] = set()
+    existing: list[Path] = []
+    for candidate in candidates:
+        key = str(candidate).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        if candidate.exists():
+            existing.append(candidate)
+    return existing
+
+
+def claude_code_version() -> str | None:
+    command = claude_code_command()
+    if not command:
+        return None
+    code, output = command_output([str(command), "--version"], timeout=20)
+    if code == 0 and output:
+        return output.splitlines()[0].strip()
+    return None
+
+
+def winget_available() -> bool:
+    return shutil.which("winget") is not None
+
+
+def node_major_version() -> int | None:
+    if shutil.which("node") is None:
+        return None
+    code, output = command_output(["node", "--version"], timeout=20)
+    if code != 0:
+        return None
+    match = re.search(r"v?(\d+)", output)
+    return int(match.group(1)) if match else None
+
+
+def winget_claude_code_installed() -> bool:
+    if not winget_available():
+        return False
+    code, output = command_output(
+        ["winget", "list", "--id", CLAUDE_CODE_WINGET_ID, "--exact", "--accept-source-agreements"],
+        timeout=45,
+    )
+    return code == 0 and CLAUDE_CODE_WINGET_ID.lower() in output.lower()
+
+
+def npm_claude_code_installed() -> bool:
+    if shutil.which("npm") is None:
+        return False
+    code, output = command_output(["npm", "list", "-g", CLAUDE_CODE_NPM_PACKAGE, "--depth=0", "--json"], timeout=45)
+    if code not in {0, 1} or not output:
+        return False
+    try:
+        data = json.loads(output)
+    except json.JSONDecodeError:
+        return CLAUDE_CODE_NPM_PACKAGE.lower() in output.lower()
+    dependencies = data.get("dependencies")
+    return isinstance(dependencies, dict) and CLAUDE_CODE_NPM_PACKAGE in dependencies
+
+
+def native_claude_code_paths() -> list[Path]:
+    paths = [
+        Path.home() / ".local/bin/claude.exe",
+        Path.home() / ".local/bin/claude",
+        Path.home() / ".local/share/claude",
+    ]
+    return [path for path in paths if path.exists()]
+
+
+def detect_claude_code_install_methods() -> list[str]:
+    methods: list[str] = []
+    if winget_claude_code_installed():
+        methods.append("winget")
+    if npm_claude_code_installed():
+        methods.append("npm")
+    if native_claude_code_paths():
+        methods.append("native")
+    if claude_code_command_paths() and not methods:
+        methods.append("path")
+    return methods
+
+
+def show_claude_code_status() -> int:
+    print("Claude Code 安装状态:")
+    version = claude_code_version()
+    print(f"  版本: {version or '未检测到可运行的 claude 命令'}")
+    methods = detect_claude_code_install_methods()
+    print(f"  安装来源: {', '.join(methods) if methods else '未安装或不在 PATH 中'}")
+    print(f"  WinGet 包: {'已安装' if 'winget' in methods else ('可用但未安装' if winget_available() else '未检测到 winget')}")
+    print(f"  npm 全局包: {'已安装' if 'npm' in methods else ('未安装' if shutil.which('npm') else '未检测到 npm')}")
+    native_paths = native_claude_code_paths()
+    print(f"  原生安装文件: {'已检测到' if native_paths else '未检测到'}")
+    for path in claude_code_command_paths():
+        print_path_info("claude 命令", path)
+    for path in native_paths:
+        print_path_info("原生安装路径", path)
+    print()
+    print("建议:")
+    if not methods:
+        print("  未检测到 Claude Code。建议使用“安装/修复”，默认走官方 CMD 原生安装器。")
+    elif len(methods) > 1:
+        print("  检测到多个安装来源。建议保留一种来源，避免 PATH 中出现旧版本。")
+    elif methods[0] == "winget":
+        print("  当前像是 WinGet 安装。更新/卸载将使用 winget。")
+    elif methods[0] == "npm":
+        print("  当前像是 npm 全局安装。更新/卸载将使用 npm。")
+    elif methods[0] == "native":
+        print("  当前像是官方原生安装。通常会自动更新，也可手动运行 claude update。")
+    else:
+        print("  找到了 claude 命令，但无法确认来源。更新会优先尝试 claude update。")
+    return 0
+
+
+def run_visible(cmd: list[str], cwd: Path | None = None) -> int:
+    print("执行命令:")
+    print("  " + " ".join(cmd))
+    if cwd:
+        print(f"  工作目录: {cwd}")
+    try:
+        return subprocess.call(cmd, cwd=str(cwd) if cwd else None)
+    except FileNotFoundError:
+        print(f"未找到命令: {cmd[0]}")
+        return 127
+
+
+def confirm_claude_code_install(method: str, code: int) -> bool:
+    if code == 0:
+        print(f"{method} 命令已结束，正在确认 claude 是否真的可用...")
+    else:
+        print(f"{method} 返回错误码 {code}，正在确认是否仍然已经装好...")
+
+    command = claude_code_command()
+    if not command:
+        print(f"{method} 之后仍未找到 claude 命令，将继续尝试下一种安装方式。")
+        return False
+
+    version = claude_code_version()
+    if not version:
+        print(f"{method} 后找到了 claude 命令，但 claude --version 没有正常返回，将继续尝试下一种安装方式。")
+        print_path_info("claude 命令", command)
+        return False
+
+    print(f"{method} 已确认可用: {version}")
+    return True
+
+
+def print_claude_code_network_hint() -> None:
+    print(
+        "提示: 如果上方出现 ECONNREFUSED、Failed to fetch version、Could not resolve host、"
+        "SSL/TLS 或 timeout，多半是当前网络/代理连不到 Claude Code 官方发布源，"
+        "不代表已经安装成功。脚本会继续尝试 npm 兜底。"
+    )
+
+
+def install_claude_code_native_cmd() -> int:
+    if shutil.which("curl.exe") is None:
+        print("未找到 curl.exe，跳过官方 CMD 原生安装器。")
+        return 127
+
+    with tempfile.TemporaryDirectory(prefix="claude-code-install-") as tmp:
+        installer = Path(tmp) / "install.cmd"
+        download_code = run_visible(
+            [
+                "curl.exe",
+                "--fail",
+                "--silent",
+                "--show-error",
+                "--location",
+                "--url",
+                CLAUDE_CODE_NATIVE_CMD_INSTALLER_URL,
+                "--output",
+                str(installer),
+            ]
+        )
+        if download_code != 0:
+            if download_code == 3:
+                print(
+                    "curl 在下载 install.cmd 前就拒绝了 URL。"
+                    "这通常是命令引号解析或代理地址格式异常导致的；脚本已避免使用 cmd 组合命令，"
+                    "如果仍出现此错误，请检查 HTTP_PROXY / HTTPS_PROXY 或 curl 配置。"
+                )
+            return download_code
+        if not installer.exists() or installer.stat().st_size == 0:
+            print("官方 CMD 安装器下载后为空，跳过执行。")
+            return 1
+        return run_visible(["cmd.exe", "/d", "/c", "install.cmd"], cwd=Path(tmp))
+
+
+def install_claude_code() -> int:
+    print("安装 / 修复 Claude Code")
+    print("将优先使用官方 CMD 原生安装器，避免依赖 PowerShell 安装管道。")
+    print("每一步都会在安装后重新检测 claude --version；只有真的可运行才算成功。")
+    print("如果 CMD 原生安装器失败，会在可用时回退到 npm。")
+    print()
+    code = install_claude_code_native_cmd()
+    if confirm_claude_code_install("官方 CMD 原生安装器", code):
+        return show_claude_code_status()
+    print_claude_code_network_hint()
+
+    print("官方 CMD 原生安装器未完成，尝试 npm 安装方式。")
+    if shutil.which("npm"):
+        node_major = node_major_version()
+        if node_major is not None and node_major < 18:
+            print(f"检测到 Node.js {node_major}.x，Claude Code npm 安装需要 Node.js 18+，跳过 npm。")
+            print("请升级 Node.js，或修复网络/代理后再使用官方 CMD 原生安装器。")
+            return 1
+        code = run_visible(["npm", "install", "-g", CLAUDE_CODE_NPM_PACKAGE])
+        if confirm_claude_code_install("npm 全局安装", code):
+            return show_claude_code_status()
+    else:
+        print("未检测到 npm，跳过 npm 安装方式。")
+
+    print("Claude Code 安装失败。请确认网络/代理可访问 claude.ai、downloads.claude.ai 或 npm registry。")
+    print("Windows 原生运行建议安装 Git for Windows；若使用 npm 方式，还需要 Node.js 18+。")
+    return code or 1
+
+
+def update_claude_code() -> int:
+    print("更新 Claude Code")
+    methods = detect_claude_code_install_methods()
+    if not methods:
+        print("未检测到 Claude Code，请先安装。")
+        return 1
+    status = 0
+    if "winget" in methods:
+        status = run_visible(["winget", "upgrade", "--id", CLAUDE_CODE_WINGET_ID, "--exact", "--accept-package-agreements", "--accept-source-agreements"])
+    elif "npm" in methods:
+        status = run_visible(["npm", "install", "-g", f"{CLAUDE_CODE_NPM_PACKAGE}@latest"])
+    else:
+        command = claude_code_command()
+        if not command:
+            print("找不到 claude 命令，无法执行更新。")
+            return 1
+        status = run_visible([str(command), "update"])
+    if status == 0:
+        show_claude_code_status()
+    return status
+
+
+def claude_code_config_paths_for_removal() -> list[Path]:
+    return [
+        Path.home() / ".claude",
+        Path.home() / ".claude.json",
+    ]
+
+
+def remove_allowed_claude_code_path(path: Path, *, strict: bool = True) -> bool:
+    allowed_roots = [
+        Path.home() / ".local",
+        Path.home() / ".claude",
+        Path.home(),
+        roaming_app_data() / "npm",
+    ]
+    if not any(is_within(path, root) for root in allowed_roots):
+        raise SystemExit(f"Refusing to delete Claude Code path outside allowed roots: {path}")
+    return delete_if_exists(path, strict=strict)
+
+
+def uninstall_claude_code(yes: bool) -> int:
+    print("完全卸载 Claude Code")
+    show_claude_code_status()
+    print("将按检测到的安装来源卸载程序。配置、会话、MCP 和授权数据会单独确认后再删除。")
+    if not yes:
+        answer = prompt_line("输入 UNINSTALL 继续卸载 Claude Code 程序: ")
+        if answer != "UNINSTALL":
+            print("已取消。")
+            return 0
+
+    methods = detect_claude_code_install_methods()
+    statuses: list[int] = []
+    if "winget" in methods:
+        statuses.append(run_visible(["winget", "uninstall", "--id", CLAUDE_CODE_WINGET_ID, "--exact", "--accept-source-agreements"]))
+    if "npm" in methods:
+        statuses.append(run_visible(["npm", "uninstall", "-g", CLAUDE_CODE_NPM_PACKAGE]))
+    if "native" in methods or not methods:
+        for path in [Path.home() / ".local/bin/claude.exe", Path.home() / ".local/bin/claude", Path.home() / ".local/share/claude"]:
+            if path.exists():
+                remove_allowed_claude_code_path(path)
+                print(f"已删除: {path}")
+
+    leftovers = [path for path in claude_code_command_paths() if path.exists()]
+    if leftovers:
+        print("仍检测到 claude 命令残留，可能来自另一个安装来源:")
+        for path in leftovers:
+            print_path_info("残留 claude 命令", path)
+
+    config_paths = [path for path in claude_code_config_paths_for_removal() if path.exists()]
+    if config_paths:
+        print()
+        print("以下配置/状态数据会影响 Claude Code 会话、MCP、授权和项目偏好:")
+        for path in config_paths:
+            print_path_info("Claude Code 配置", path)
+        delete_config = "DELETECONFIG" if yes else prompt_line("如需同时删除这些配置，输入 DELETECONFIG；直接回车则保留: ")
+        if delete_config == "DELETECONFIG":
+            for path in config_paths:
+                if remove_allowed_claude_code_path(path, strict=False):
+                    print(f"已删除: {path}")
+                else:
+                    print(f"未能完全删除，可能有只读或占用文件残留: {path}")
+        else:
+            print("已保留 Claude Code 配置/状态数据。")
+
+    failed = [status for status in statuses if status not in {0, -1978335189}]
+    return failed[0] if failed else 0
 
 
 def create_launcher(target_dir: Path) -> Path:
@@ -994,14 +1346,32 @@ def create_shortcuts(target_dir: Path, dry_run: bool = False) -> int:
     return 0
 
 
-def delete_if_exists(path: Path) -> bool:
+def retry_remove_after_chmod(func: Any, path: str, exc_info: Any) -> None:
+    try:
+        os.chmod(path, 0o700)
+        func(path)
+    except Exception:
+        raise
+
+
+def delete_if_exists(path: Path, *, strict: bool = True) -> bool:
     if not path.exists():
         return False
-    if path.is_dir():
-        shutil.rmtree(path)
-    else:
-        path.unlink()
-    return True
+    try:
+        if path.is_dir():
+            shutil.rmtree(path, onerror=retry_remove_after_chmod)
+        else:
+            try:
+                path.unlink()
+            except PermissionError:
+                os.chmod(path, 0o700)
+                path.unlink()
+        return True
+    except OSError as exc:
+        if strict:
+            raise
+        print(f"警告：无法删除 {path}: {exc}")
+        return False
 
 
 def full_clean(target_dir: Path, yes: bool) -> int:
@@ -1109,6 +1479,14 @@ def download_latest_msix(download_dir: Path) -> Path:
         print("Retrying download with PowerShell...")
         download_latest_msix_with_powershell(tmp)
     os.replace(tmp, target)
+    if not validate_msix_archive(target, require_app=True):
+        message = invalid_msix_message(target, "刚下载的文件不是有效的 Claude Desktop MSIX。")
+        try:
+            target.unlink()
+            message += "\n已删除无效下载缓存；请检查网络/代理后重试。"
+        except OSError:
+            message += "\n无法删除无效下载缓存；请手动删除后重试。"
+        raise SystemExit(message)
     return target
 
 
@@ -1123,6 +1501,57 @@ Invoke-WebRequest -Uri '{LATEST_MSIX_URL}' -OutFile '{target}' -Headers $headers
     result = run([powershell_exe(), "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script], check=False)
     if result.returncode != 0:
         raise SystemExit(result.stdout.strip() or "PowerShell 下载失败。")
+
+
+def text_preview(path: Path, limit: int = 300) -> str:
+    try:
+        data = path.read_bytes()[:limit]
+    except OSError:
+        return ""
+    text = data.decode("utf-8", errors="ignore")
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:limit]
+
+
+def validate_msix_archive(path: Path, *, require_app: bool) -> bool:
+    if not path.exists() or path.stat().st_size == 0:
+        return False
+    if not zipfile.is_zipfile(path):
+        return False
+    try:
+        with zipfile.ZipFile(path) as archive:
+            if archive.testzip() is not None:
+                return False
+            if require_app and not any(info.filename.startswith("app/") and not info.is_dir() for info in archive.infolist()):
+                return False
+    except (OSError, zipfile.BadZipFile, zipfile.LargeZipFile):
+        return False
+    return True
+
+
+def invalid_msix_message(path: Path, headline: str) -> str:
+    size = format_size(path_size(path)) if path.exists() else "0 B"
+    preview = text_preview(path)
+    lines = [
+        headline,
+        f"文件: {path}",
+        f"大小: {size}",
+        "",
+        "这通常不是汉化脚本本身的问题，而是下载没有拿到真正的 MSIX 安装包。",
+        "常见原因：网络不通、代理/VPN 拦截、TLS/证书问题、下载地址返回 HTML 错误页或重定向页。",
+    ]
+    if preview:
+        lines.extend(["", f"文件开头看起来像: {preview}"])
+    lines.extend(
+        [
+            "",
+            "建议：",
+            "  1. 检查网络、代理/VPN 或防火墙后重试。",
+            "  2. 如果浏览器能下载官方 Claude Desktop MSIX，可用 --source 指向该 MSIX。",
+            "  3. 不要把错误页改名成 .msix；MSIX 本质上必须是 ZIP 格式安装包。",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def backup_existing_target(target: Path, dry_run: bool) -> Path | None:
@@ -1208,6 +1637,8 @@ def normalize_percent_encoded_paths(root: Path, dry_run: bool = False) -> int:
 
 
 def safe_extract_msix_app(msix: Path, target_dir: Path, dry_run: bool) -> None:
+    if not dry_run and not validate_msix_archive(msix, require_app=True):
+        raise SystemExit(invalid_msix_message(msix, "无法解包：这个文件不是有效的 Claude Desktop MSIX。"))
     backup_existing_target(target_dir, dry_run)
     if dry_run:
         print(f"[dry-run] Would extract app/ from {msix} -> {target_dir}")
@@ -1216,7 +1647,11 @@ def safe_extract_msix_app(msix: Path, target_dir: Path, dry_run: bool) -> None:
     print(f"正在从 MSIX 解包 app/: {msix} -> {target_dir}")
     target_dir.parent.mkdir(parents=True, exist_ok=True)
     target_root = target_dir.resolve()
-    with zipfile.ZipFile(msix) as archive:
+    try:
+        archive = zipfile.ZipFile(msix)
+    except zipfile.BadZipFile:
+        raise SystemExit(invalid_msix_message(msix, "无法解包：这个文件不是有效的 ZIP/MSIX。")) from None
+    with archive:
         app_members = [m for m in archive.infolist() if m.filename.startswith("app/") and not m.is_dir()]
         if not app_members:
             raise SystemExit(f"MSIX does not contain app/ files: {msix}")
@@ -1279,12 +1714,19 @@ def patch_hardcoded_frontend_strings(app_dir: Path) -> None:
         '"Continue with Google"': '"使用 Google 继续"',
         '"Continue with email"': '"使用邮箱继续"',
         '"Enter your email"': '"输入你的邮箱"',
+        '"Write a message..."': '"输入消息..."',
+        '"Write a message…"': '"输入消息..."',
+        '"Legacy Model"': '"旧版模型"',
         '"By continuing, you acknowledge Anthropic’s Privacy Policy."': '"继续即表示你已知晓 Anthropic 的隐私政策。"',
         '"By continuing, you acknowledge Anthropic’s Privacy Policy(opens in a new tab)."': '"继续即表示你已知晓 Anthropic 的隐私政策。"',
         '"By continuing, you acknowledge Anthropic’s Privacy Policy (opens in a new tab)."': '"继续即表示你已知晓 Anthropic 的隐私政策。"',
-        '"You can change this later by signing out."': '"退出登录后，你稍后可以更改此选择。"',
-        '"Or continue with Gateway"': '"或继续使用 Gateway 网关"',
-        '"Continue with Gateway"': '"继续使用 Gateway 网关"',
+        '"By continuing, you acknowledge Anthropic’s "': '"继续即表示你已知晓 Anthropic 的 "',
+        '"By continuing, you acknowledge Anthropic\'s "': '"继续即表示你已知晓 Anthropic 的 "',
+        '"You can change this later by signing out."': '"退出登陆后，你稍后可以更改此选择。"',
+        '"Sign out"': '"退出登陆"',
+        '"Sign Out"': '"退出登陆"',
+        '"Or continue with Gateway"': '"或继续使用 API 模式使用"',
+        '"Continue with Gateway"': '"继续使用 API 模式"',
         '"Model"': '"模型"',
         '"Effort"': '"推理强度"',
         '"Mode"': '"操作模式"',
@@ -1358,6 +1800,7 @@ def patch_hardcoded_frontend_strings(app_dir: Path) -> None:
         '"Inside project (.claude/worktrees)"': '"项目内（.claude/worktrees）"',
         '"Inside project (.claude/worktree)"': '"项目内（.claude/worktree）"',
         '"Privacy Policy"': '"隐私政策"',
+        '"Privacy Policy."': '"隐私政策。"',
         '"Privacy Policy(opens in a new tab)"': '"隐私政策"',
         '"Privacy Policy (opens in a new tab)"': '"隐私政策"',
         '"Download Claude for Windows"': '"下载 Claude Windows 版"',
@@ -1413,7 +1856,7 @@ def patch_hardcoded_frontend_strings(app_dir: Path) -> None:
         'banner:"Prompts, completions, and your data are never sent to Anthropic — telemetry covers crash and usage signals only."': 'banner:"提示词、补全内容和你的数据不会发送给 Anthropic；遥测只包含崩溃和使用情况信号。"',
         'banner:"Plugins and skills aren\'t set in this configuration. Mount plugin bundles to the folder below using your device-management tool and Cowork will load them at launch."': 'banner:"插件和技能不在此配置中直接设置。请用设备管理工具把插件包挂载到下面的文件夹，Cowork 会在启动时加载。"',
         'caption:"Drop plugin folders here. Read-only to the app."': 'caption:"将插件文件夹放在这里。应用内只读。"',
-        'description:"Hosts your network firewall must allow, derived from your current settings. This list is read-only and updates as you make changes. Traffic is HTTPS on port 443 unless a custom port is specified (OTLP, gateway, or MCP server URLs)."': 'description:"根据当前设置推导出的网络防火墙放行主机列表。此列表只读，并会随配置变化更新。除非 OTLP、网关[gateway] 或 MCP 服务器 URL 指定了自定义端口，否则流量使用 443 端口的 HTTPS。"',
+        'description:"Hosts your network firewall must allow, derived from your current settings. This list is read-only and updates as you make changes. Traffic is HTTPS on port 443 unless a custom port is specified (OTLP, gateway, or MCP server URLs)."': 'description:"根据当前设置推导出的网络防火墙放行主机列表。此列表只读，并会随配置变化更新。除非 OTLP、API 服务或 MCP 服务器 URL 指定了自定义端口，否则流量使用 443 端口的 HTTPS。"',
         'group:"Updates"': 'group:"更新"',
         'group:"Identity & models"': 'group:"身份与模型"',
         'group:"Bootstrap config URL"': 'group:"引导配置 URL"',
@@ -1433,13 +1876,13 @@ def patch_hardcoded_frontend_strings(app_dir: Path) -> None:
         'title:"OpenTelemetry exporter headers"': 'title:"OpenTelemetry 导出请求头"',
         'title:"Auto-update enforcement window"': 'title:"自动更新强制窗口"',
         'title:"Block auto-updates"': 'title:"阻止自动更新"',
-        'title:"Skip login-mode chooser"': 'title:"跳过登录模式选择"',
+        'title:"Skip login-mode chooser"': 'title:"直进 API 模式"',
         'title:"Required organization"': 'title:"限定组织"',
         'title:"Inference provider"': 'title:"推理提供方"',
-        'title:"Gateway base URL"': 'title:"网关基础 URL"',
-        'title:"Gateway API key"': 'title:"网关 API 密钥"',
-        'title:"Gateway auth scheme"': 'title:"网关认证方式"',
-        'title:"Gateway extra headers"': 'title:"网关额外请求头"',
+        'title:"Gateway base URL"': 'title:"API 地址"',
+        'title:"Gateway API key"': 'title:"API 密钥"',
+        'title:"Gateway auth scheme"': 'title:"认证方式"',
+        'title:"Gateway extra headers"': 'title:"额外请求头"',
         'title:"GCP project ID"': 'title:"GCP 项目 ID"',
         'title:"GCP region"': 'title:"GCP 区域"',
         'title:"GCP credentials file path"': 'title:"GCP 凭据文件路径"',
@@ -1483,11 +1926,11 @@ def patch_hardcoded_frontend_strings(app_dir: Path) -> None:
         'description:"Headers sent with every OTLP request, as comma-separated key=value pairs (the standard OTEL_EXPORTER_OTLP_HEADERS format)."': 'description:"每个 OTLP 请求都会发送的请求头，以逗号分隔的 key=value 形式填写（标准 OTEL_EXPORTER_OTLP_HEADERS 格式）。"',
         'description:"When set, forces a pending update to install after this many hours regardless of user activity. When unset, the app uses a 72-hour window but defers installation while the user is active."': 'description:"设置后，待安装更新会在指定小时数后强制安装，不再考虑用户是否正在使用。未设置时，应用使用 72 小时窗口，并会在用户活跃时延后安装。"',
         'description:"Blocks the app from checking for and downloading updates from Anthropic. The app will stay on its installed version until updated by other means."': 'description:"阻止应用检查和下载来自 Anthropic 的更新。除非通过其他方式更新，否则应用会停留在当前安装版本。"',
-        'description:"Skips the first-launch screen that asks the user to choose between Anthropic sign-in and the organization-managed provider. The app goes straight to the mode implied by this configuration (third-party when inferenceProvider is set), overriding any earlier user choice."': 'description:"跳过首次启动时让用户在 Anthropic 登录和组织托管提供方之间选择的页面。应用会直接进入此配置指定的模式（设置 inferenceProvider 时为第三方模式），并覆盖此前的用户选择。"',
+        'description:"Skips the first-launch screen that asks the user to choose between Anthropic sign-in and the organization-managed provider. The app goes straight to the mode implied by this configuration (third-party when inferenceProvider is set), overriding any earlier user choice."': 'description:"隐藏首次启动时的账号登录/API 模式选择页，并直接进入当前配置指定的模式。设置 API 提供方后会直进 API 模式；关闭后会恢复账号登录入口。"',
         'description:"Restricts login to specific org UUID(s). Single UUID string or JSON array."': 'description:"将登录限制到指定组织 UUID。可填写单个 UUID 字符串或 JSON 数组。"',
-        'description:"Full URL of the inference gateway endpoint."': 'description:"推理网关端点的完整 URL。"',
-        'description:"Selects the inference backend. Setting this key activates third-party mode."': 'description:"选择推理后端。设置此项会启用第三方模式。"',
-        'description:"How to send the gateway credential. \'bearer\' (default) sends Authorization: Bearer. Set \'x-api-key\' only if your gateway requires the x-api-key header instead (e.g. api.anthropic.com). Set \'sso\' to obtain the credential via the gateway\'s own browser-based sign-in (RFC 8414 discovery at `<inferenceGatewayBaseUrl>/.well-known/oauth-authorization-server` + RFC 8628 device-code grant); inferenceGatewayApiKey and inferenceCredentialHelper are not required."': 'description:"网关[gateway]凭据的发送方式。\'bearer\'（默认）会发送 Authorization: Bearer。只有当网关[gateway]要求使用 x-api-key 请求头时才设置为 \'x-api-key\'（例如 api.anthropic.com）。设置为 \'sso\' 时，会通过网关[gateway]自己的浏览器登录获取凭据（RFC 8414 发现 `<inferenceGatewayBaseUrl>/.well-known/oauth-authorization-server` + RFC 8628 设备码授权）；无需 inferenceGatewayApiKey 和 inferenceCredentialHelper。"',
+        'description:"Full URL of the inference gateway endpoint."': 'description:"API 服务端点的完整 URL。"',
+        'description:"Selects the inference backend. Setting this key activates third-party mode."': 'description:"选择推理后端。设置为 gateway 时会启用 API 模式配置。"',
+        'description:"How to send the gateway credential. \'bearer\' (default) sends Authorization: Bearer. Set \'x-api-key\' only if your gateway requires the x-api-key header instead (e.g. api.anthropic.com). Set \'sso\' to obtain the credential via the gateway\'s own browser-based sign-in (RFC 8414 discovery at `<inferenceGatewayBaseUrl>/.well-known/oauth-authorization-server` + RFC 8628 device-code grant); inferenceGatewayApiKey and inferenceCredentialHelper are not required."': 'description:"API 凭据的发送方式。\'bearer\'（默认）会发送 Authorization: Bearer。只有当 API 服务要求使用 x-api-key 请求头时，才设置为 \'x-api-key\'（例如 api.anthropic.com）。设置为 \'sso\' 时，会通过 API 服务自己的浏览器登录获取凭据（RFC 8414 发现 `<inferenceGatewayBaseUrl>/.well-known/oauth-authorization-server` + RFC 8628 设备码授权）；无需 inferenceGatewayApiKey 和 inferenceCredentialHelper。"',
         'description:"Extra HTTP headers sent on every inference request. JSON array of \'Name: Value\' strings."': 'description:"每次推理请求都会发送的额外 HTTP 请求头。格式为由 \'Name: Value\' 字符串组成的 JSON 数组。"',
         'description:"GCP region for the Vertex AI endpoint."': 'description:"Vertex AI 端点所在的 GCP 区域。"',
         'description:"Absolute path to a service-account JSON or ADC file. No tilde or environment-variable expansion."': 'description:"服务账号 JSON 或 ADC 文件的绝对路径。不支持波浪号或环境变量展开。"',
@@ -1496,7 +1939,7 @@ def patch_hardcoded_frontend_strings(app_dir: Path) -> None:
         'description:"Space-separated OAuth scopes for the Google sign-in flow. Defaults to `openid email https://www.googleapis.com/auth/cloud-platform`. Narrow this if your Workspace\'s Context-Aware Access or reauth policy restricts `cloud-platform`."': 'description:"Google 登录流程使用的 OAuth 权限范围，用空格分隔。默认是 `openid email https://www.googleapis.com/auth/cloud-platform`。如果你的 Workspace 上下文感知访问或重新认证策略限制了 `cloud-platform`，请收窄此范围。"',
         'description:"Override the Vertex inference endpoint (e.g. a Private Service Connect address). Leave unset to use the public regional endpoint."': 'description:"覆盖 Vertex 推理端点（例如 Private Service Connect 地址）。留空则使用公开区域端点。"',
         'description:"AWS region for the Bedrock runtime endpoint."': 'description:"Bedrock 运行时端点所在的 AWS 区域。"',
-        'description:"Override the Bedrock inference endpoint (e.g. a VPC interface endpoint or LLM gateway). Leave unset to use the public regional endpoint."': 'description:"覆盖 Bedrock 推理端点（例如 VPC 接口端点或 LLM 网关）。留空则使用公开区域端点。"',
+        'description:"Override the Bedrock inference endpoint (e.g. a VPC interface endpoint or LLM gateway). Leave unset to use the public regional endpoint."': 'description:"覆盖 Bedrock 推理端点（例如 VPC 接口端点或 LLM API 代理）。留空则使用公开区域端点。"',
         'description:"AWS named profile to use (from the AWS config/credentials files). Ignored when inferenceBedrockBearerToken is set."': 'description:"要使用的 AWS 命名配置档（来自 AWS config/credentials 文件）。设置 inferenceBedrockBearerToken 时会忽略此项。"',
         'description:"Absolute path to the directory containing AWS config and credentials files. Optional — defaults to the user\'s ~/.aws when inferenceBedrockBearerToken is not set. Copied into the sandbox at session start so the named profile can be resolved."': 'description:"包含 AWS config 和 credentials 文件的目录绝对路径。可选；未设置 inferenceBedrockBearerToken 时默认使用用户的 ~/.aws。会在会话开始时复制到沙盒内，以便解析命名配置档。"',
         'description:"Azure AI Foundry resource name used to construct the endpoint URL."': 'description:"用于构造端点 URL 的 Azure AI Foundry 资源名称。"',
@@ -1525,7 +1968,7 @@ def patch_hardcoded_frontend_strings(app_dir: Path) -> None:
         'hint:"Per-user soft cap, counted client-side over the duration below. Not a server-enforced quota."': 'hint:"按用户设置的软上限，由客户端按下方时长统计。不是服务器强制配额。"',
         'reason:"The default host-native mode starts faster and works behind restricted networks. Shell commands run inside the VM; file tools run on the host with path-based access control. Enable this only if your security review requires the agent loop itself to run in the VM."': 'reason:"默认的主机原生模式启动更快，也能在受限网络中工作。Shell 命令在 VM 内运行；文件工具在主机上运行，并使用基于路径的访问控制。只有当安全审查要求代理循环本身也在 VM 内运行时，才启用此项。"',
         'reason:"Crash and error reports are how we diagnose failures specific to your inference setup. Support turnaround will be slower without them."': 'reason:"崩溃和错误报告可帮助诊断与你的推理配置有关的问题。关闭后，支持响应会更慢。"',
-        'reason:"Usage analytics help us prioritize improvements for third-party inference. Diagnostic-report uploads will also be blocked. No message content is included in either."': 'reason:"使用分析可帮助优先改进第三方推理体验。诊断报告上传也会被阻止。两者都不包含消息内容。"',
+        'reason:"Usage analytics help us prioritize improvements for third-party inference. Diagnostic-report uploads will also be blocked. No message content is included in either."': 'reason:"使用分析可帮助优先改进 API 模式体验。诊断报告上传也会被阻止。两者都不包含消息内容。"',
         'reason:"This disables artifact previews and connector icons. Artifacts will not render in conversations."': 'reason:"这会停用 Artifact 预览和连接器图标。Artifact 不会在对话中渲染。"',
         'reason:"Security and compatibility fixes will not install automatically. Make sure IT has another distribution path."': 'reason:"安全和兼容性修复不会自动安装。请确认 IT 有其他分发渠道。"',
         'egressRequirementsLabel:"Desktop extensions (Python runtime)"': 'egressRequirementsLabel:"桌面扩展（Python 运行时）"',
@@ -1543,8 +1986,8 @@ def patch_hardcoded_frontend_strings(app_dir: Path) -> None:
         'suffix:"tokens"': 'suffix:"token"',
         'suffix:"令牌"': 'suffix:"token"',
         'hint:"Bearer (default) sends Authorization: Bearer. x-api-key is for the Anthropic API directly — auto-selected when the URL is *.anthropic.com."': 'hint:"Bearer（默认）会发送 Authorization: Bearer。x-api-key 用于直连 Anthropic API；当 URL 为 *.anthropic.com 时会自动选择。"',
-        'hint:"Extra headers sent to the gateway, one \'Name: Value\' per entry. For tenant routing, org IDs, etc."': 'hint:"发送到网关的额外请求头，每项一个 \'Name: Value\'。可用于租户路由、组织 ID 等。"',
-        'hint:"First entry is the picker default. Aliases like sonnet, opus accepted. Optional for gateway — when set, the picker shows exactly this list instead of /v1/models discovery. Turn on 1M context only for models your provider actually serves with the extended window."': 'hint:"第一项是选择器默认模型。支持 sonnet、opus 等别名。网关可不填；填写后，模型选择器会严格显示此列表，而不是通过 /v1/models 发现。只有在提供方实际支持扩展上下文窗口时，才开启 1M 上下文。"',
+        'hint:"Extra headers sent to the gateway, one \'Name: Value\' per entry. For tenant routing, org IDs, etc."': 'hint:"发送到 API 服务的额外请求头，每项一个 \'Name: Value\'。可用于租户路由、组织 ID 等。"',
+        'hint:"First entry is the picker default. Aliases like sonnet, opus accepted. Optional for gateway — when set, the picker shows exactly this list instead of /v1/models discovery. Turn on 1M context only for models your provider actually serves with the extended window."': 'hint:"第一项是选择器默认模型。支持 sonnet、opus 等别名。API 模式可不填；填写后，模型选择器会严格显示此列表，而不是通过 /v1/models 发现。只有在提供方实际支持扩展上下文窗口时，才开启 1M 上下文。"',
         'hint:"Tags telemetry events with your org so support can find them. Not used for auth."': 'hint:"给遥测事件打上组织标记，方便支持人员定位；不用于认证。"',
         'hint:"Go straight to this provider at launch — users won\'t see the option to sign in to Anthropic instead."': 'hint:"启动时直接进入此提供方；用户不会再看到改用 Anthropic 登录的选项。"',
         'hint:"GCP region where your Vertex AI Claude models are deployed."': 'hint:"部署 Vertex AI Claude 模型的 GCP 区域。"',
@@ -1554,7 +1997,7 @@ def patch_hardcoded_frontend_strings(app_dir: Path) -> None:
         'hint:"Override the Google OAuth scopes (space-separated). Leave blank for the default."': 'hint:"覆盖 Google OAuth 权限范围，用空格分隔。留空则使用默认值。"',
         'hint:"PSC endpoint, if using one."': 'hint:"如使用 PSC，请填写其端点。"',
         'hint:"Overrides profile when both are set."': 'hint:"同时设置时会覆盖配置档。"',
-        'hint:"For VPC endpoints or gateway proxies."': 'hint:"用于 VPC 端点或网关代理。"',
+        'hint:"For VPC endpoints or gateway proxies."': 'hint:"用于 VPC 端点或 API 代理。"',
         'hint:"Ignored if a bearer token is set."': 'hint:"如果已设置 Bearer 访问令牌，则忽略此项。"',
         'hint:"Folder with AWS config/credentials. Defaults to ~/.aws when no bearer token is set."': 'hint:"包含 AWS config/credentials 的文件夹。未设置 Bearer 访问令牌时默认使用 ~/.aws。"',
         'hint:"Absolute path to an executable that prints the credential."': 'hint:"可执行文件的绝对路径，该程序应输出凭据。"',
@@ -1610,14 +2053,14 @@ FIRST_RUN_FRONTEND_TRANSLATIONS = {
     "WZnsSUyRsT": "输入你的邮箱",
     "1rdtC2xx7v": "继续即表示你已知晓 Anthropic 的 <privacyLink>隐私政策</privacyLink>，并同意偶尔接收推广邮件和通知。",
     "8qzCpf4q7/": "继续即表示你已知晓 Anthropic 的 <privacyLink>隐私政策</privacyLink>。",
-    "8nsTrp2M6s": "退出登录后，你稍后可以更改此选择。",
+    "8nsTrp2M6s": "退出登陆后，你稍后可以更改此选择。",
 }
 
 
-LOGIN_PAGE_PRELOAD_MARKER = "WIN_CC_ZH_CN_LOGIN_DOM_TRANSLATION_V6"
+LOGIN_PAGE_PRELOAD_MARKER = "WIN_CC_ZH_CN_LOGIN_DOM_TRANSLATION_V12"
 LOGIN_PAGE_PRELOAD_SNIPPET = r'''
-;(()=>{const MARK="WIN_CC_ZH_CN_LOGIN_DOM_TRANSLATION_V6";if(globalThis[MARK])return;globalThis[MARK]=true;
-const allowed=()=>{try{const u=new URL(location.href);return /(^|\.)claude\.(ai|com)$/.test(u.hostname)&&u.pathname.startsWith("/login")}catch{return false}};
+;(()=>{const MARK="WIN_CC_ZH_CN_LOGIN_DOM_TRANSLATION_V12";if(globalThis[MARK])return;globalThis[MARK]=true;
+const allowed=()=>true;
 const map=new Map([
 ["Claude for Windows","Claude Windows 版"],
 ["for Windows","Windows 版"],
@@ -1627,6 +2070,9 @@ const map=new Map([
 ["Continue with Google","使用 Google 继续"],
 ["Continue with email","使用邮箱继续"],
 ["Enter your email","输入你的邮箱"],
+["Write a message...","输入消息..."],
+["Write a message…","输入消息..."],
+["Legacy Model","旧版模型"],
 ["OR","或"],
 ["By continuing, you acknowledge Anthropic's Privacy Policy.","继续即表示你已知晓 Anthropic 的隐私政策。"],
 ["By continuing, you acknowledge Anthropic’s Privacy Policy.","继续即表示你已知晓 Anthropic 的隐私政策。"],
@@ -1634,14 +2080,59 @@ const map=new Map([
 ["By continuing, you acknowledge Anthropic’s Privacy Policy(opens in a new tab).","继续即表示你已知晓 Anthropic 的隐私政策。"],
 ["By continuing, you acknowledge Anthropic's Privacy Policy (opens in a new tab).","继续即表示你已知晓 Anthropic 的隐私政策。"],
 ["By continuing, you acknowledge Anthropic’s Privacy Policy (opens in a new tab).","继续即表示你已知晓 Anthropic 的隐私政策。"],
+["By continuing, you acknowledge Anthropic's ","继续即表示你已知晓 Anthropic 的 "],
+["By continuing, you acknowledge Anthropic’s ","继续即表示你已知晓 Anthropic 的 "],
+["Privacy Policy.","隐私政策。"],
+["Privacy Policy","隐私政策"],
 ["Privacy Policy(opens in a new tab)","隐私政策"],
 ["Privacy Policy (opens in a new tab)","隐私政策"],
-["You can change this later by signing out.","退出登录后，你稍后可以更改此选择。"],
-["Or continue with Gateway","或继续使用 Gateway 网关"],
-["Continue with Gateway","继续使用 Gateway 网关"],
+["You can change this later by signing out.","退出登陆后，你稍后可以更改此选择。"],
+["Sign out","退出登陆"],
+["Sign Out","退出登陆"],
+["Or continue with Gateway","或继续使用 API 模式使用"],
+["Continue with Gateway","继续使用 API 模式"],
 ["Always allow in this project (local)","在此项目中始终允许（本地）"],
 ["Allow once","允许一次"],
-["Reject","拒绝"]
+["Reject","拒绝"],
+["Gateway","API 模式"],
+["Anthropic-compatible","Anthropic 兼容"],
+["Full URL of the inference gateway endpoint.","API 服务端点的完整 URL。"],
+["Extra headers sent to the gateway. One value per header name. For tenant routing, org IDs, etc.","发送到 API 服务的额外请求头。每个请求头名称对应一个值，可用于租户路由、组织 ID 等。"],
+["Bearer (default) sends Authorization: Bearer. x-api-key is for the Anthropic API directly — auto-selected when the URL is *.anthropic.com.","Bearer（默认）会发送 Authorization: Bearer。x-api-key 用于直连 Anthropic API；当 URL 为 *.anthropic.com 时会自动选择。"],
+["Hide Anthropic sign-in","隐藏 Anthropic 登录入口"],
+["Users see only this provider at the login screen — the option to sign in to Anthropic is hidden.","登录页只显示当前提供方；Anthropic 登录入口会被隐藏。"],
+["Show the Code tab (terminal-based coding sessions). Sessions run on the host, not inside the VM.","显示 Code 标签页（终端式编码会话）。会话在主机上运行，不在 VM 内运行。"],
+["Reject desktop extensions that are not signed by a trusted publisher.","拒绝未由受信任发布者签名的桌面扩展。"],
+["desktop extensions that are not signed by a trusted publisher.","未由受信任发布者签名的桌面扩展。"],
+["CORE (VM BUNDLE + CLAUDE CLI BINARY)","核心组件（VM 包 + Claude CLI）"],
+["Core (VM bundle + Claude CLI binary)","核心组件（VM 包 + Claude CLI）"],
+["AUTO-UPDATES","自动更新"],
+["Auto-updates","自动更新"],
+["ESSENTIAL TELEMETRY","必要遥测"],
+["Essential telemetry","必要遥测"],
+["NONESSENTIAL TELEMETRY","非必要遥测"],
+["Nonessential telemetry","非必要遥测"],
+["NONESSENTIAL SERVICES","非必要服务"],
+["Nonessential services","非必要服务"],
+["Desktop extensions (Python runtime)","桌面扩展（Python 运行时）"],
+["Desktop extensions (PYTHON runtime)","桌面扩展（Python 运行时）"],
+["Gateway base URL","API 地址"],
+["Gateway API key","API 密钥"],
+["Gateway auth scheme","认证方式"],
+["Gateway extra headers","额外请求头"],
+["Choose where Claude Desktop sends inference requests.","选择 Claude Desktop 发送推理请求的位置。"],
+["Selects the inference backend. Setting this key activates third-party mode.","选择推理后端。设置为 gateway 时会启用 API 模式配置。"],
+["First entry is the picker default. Aliases like sonnet, opus accepted. Optional for gateway — when set, the picker shows exactly this list instead of /v1/models discovery. Turn on 1M context only for models your provider actually serves with the extended window.","第一项是模型选择器默认值。支持 sonnet、opus 等别名。API 模式可不填；填写后将只显示此列表，而不通过 /v1/models 发现。只有提供方实际支持扩展上下文窗口时，才开启 1M 上下文。"],
+["Tags telemetry events with your org so support can find them. Not used for auth.","给遥测事件标记组织，方便支持人员定位；不用于认证。"],
+["Absolute path to an executable that prints the credential.","输出凭据的可执行文件绝对路径。"],
+["Run credential helper","运行凭据辅助脚本"],
+["Tool egress (Cowork sessions)","Cowork 工具出站"],
+["User-added MCP (Python runtime)","用户添加的 MCP（Python 运行时）"],
+["Managed MCP servers","托管 MCP 服务器"],
+["MCP servers","MCP 服务器"],
+["Extensions","扩展"],
+["Require signed extensions","要求扩展签名"],
+["Allow Claude Code tab","允许 Claude Code 标签页"]
 ]);
 const replace=s=>{let v=s;for(const[a,b]of map)v=v.split(a).join(b);return v.replace(/for\s+Windows/g,"Windows 版")};
 const walk=root=>{if(!allowed()||!root)return;try{
@@ -1714,7 +2205,7 @@ def patch_login_page_preload_translation(app_dir: Path, dry_run: bool = False) -
         return 0
 
     print(f"已备份 Claude app.asar: {backup}")
-    print("已注入登录页运行时中文补丁：仅对 https://claude.ai/login / https://claude.com/login 生效")
+    print("已注入运行时中文兜底补丁：处理登录页和部分硬编码设置页可见文案")
     patch_exe_asar_header_hash(
         app_dir,
         new_header_hash,
@@ -2120,6 +2611,68 @@ def discover_local_claude_gateway_config() -> tuple[dict[str, Any] | None, list[
     )
 
 
+def gateway_models_endpoint_candidates(base_url: str) -> list[str]:
+    parsed = urllib.parse.urlparse(base_url)
+    normalized = base_url.rstrip("/")
+    candidates = [normalized + "/v1/models"]
+    if parsed.path.rstrip("/").endswith("/claude"):
+        root_path = parsed.path.rstrip("/")[: -len("/claude")]
+        root = urllib.parse.urlunparse((parsed.scheme, parsed.netloc, root_path, "", "", "")).rstrip("/")
+        candidates.append(root + "/v1/models")
+    return list(dict.fromkeys(candidates))
+
+
+def discover_gateway_models(base_url: str, credential: str, auth_scheme: str) -> tuple[list[str], list[str]]:
+    messages: list[str] = []
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": DOWNLOAD_HEADERS["User-Agent"],
+    }
+    if auth_scheme == "x-api-key":
+        headers["x-api-key"] = credential
+    elif auth_scheme != "sso":
+        headers["Authorization"] = f"Bearer {credential}"
+
+    for endpoint in gateway_models_endpoint_candidates(base_url):
+        request = urllib.request.Request(endpoint, headers=headers)
+        try:
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            with opener.open(request, timeout=5) as response:
+                payload = json.loads(response.read().decode("utf-8", errors="replace"))
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace").strip()
+            if len(body) > 800:
+                body = body[:800] + "..."
+            messages.append(f"{endpoint}: HTTP {exc.code} {body or exc.reason}")
+            continue
+        except Exception as exc:
+            messages.append(f"{endpoint}: {exc}")
+            continue
+
+        raw_models = payload.get("data") if isinstance(payload, dict) else payload
+        if not isinstance(raw_models, list):
+            messages.append(f"{endpoint}: response has no model list")
+            continue
+
+        models: list[str] = []
+        for item in raw_models:
+            model_id: str | None = None
+            if isinstance(item, dict):
+                model_id = nonempty_string(item.get("id")) or nonempty_string(item.get("name"))
+            elif isinstance(item, str):
+                model_id = nonempty_string(item)
+            if model_id and re.search(r"(^|/)claude[-/]", model_id, flags=re.IGNORECASE):
+                models.append(model_id)
+
+        models = list(dict.fromkeys(models))
+        if models:
+            messages.append(f"{endpoint}: detected {len(models)} models")
+            return models, messages
+        messages.append(f"{endpoint}: model list is empty")
+
+    return [], messages
+
+
 def backup_third_party_library(data_dir: Path, reason: str) -> Path | None:
     library = third_party_config_library_dir(data_dir)
     if not library.exists():
@@ -2179,9 +2732,9 @@ def ensure_third_party_config_meta(data_dir: Path, dry_run: bool) -> tuple[str, 
             library.mkdir(parents=True, exist_ok=True)
             if meta_path.exists():
                 backup = backup_file(meta_path, "before-third-party-config")
-                print(f"已备份 Claude 第三方推理配置元数据: {backup}")
+                print(f"已备份 Claude API 配置元数据: {backup}")
             save_json(meta_path, data)
-            print(f"已更新 Claude 第三方推理配置元数据: {meta_path}")
+            print(f"已更新 Claude API 配置元数据: {meta_path}")
 
     return applied_id, third_party_config_path(applied_id, data_dir)
 
@@ -2199,9 +2752,9 @@ def set_disable_deployment_mode_chooser(data_dir: Path, dry_run: bool) -> None:
             continue
         if config_path.exists():
             backup = backup_file(config_path, "before-skip-login-mode-chooser")
-            print(f"已备份 Claude 第三方推理配置: {backup}")
+            print(f"已备份 Claude API 配置: {backup}")
         save_json(config_path, updated)
-        print(f"已启用跳过登录模式选择: {config_path}")
+        print(f"已启用直进 API 模式: {config_path}")
 
 
 def set_deployment_mode_3p(
@@ -2251,10 +2804,13 @@ def sync_desktop_third_party_library(source_data_dir: Path, target_data_dir: Pat
         return 1
 
     if source_data_dir.resolve() == target_data_dir.resolve():
-        print(f"来源和目标configLibrary 配置库相同: {source_library}")
-        set_disable_deployment_mode_chooser(target_data_dir, dry_run)
-        set_deployment_mode_3p(target_data_dir, dry_run, "before-sync-third-party-library")
+        print(f"来源和目标 API 配置库相同: {source_library}")
+        print("已保留当前 API 配置；同步操作不会自动进入 API 模式。")
         if target_data_dir.resolve() == portable_user_data_dir().resolve():
+            clear_portable_deployment_mode(dry_run)
+            clear_disable_deployment_mode_chooser(target_data_dir, dry_run)
+            if not dry_run:
+                clear_portable_frontend_cache()
             refresh_launcher_for_third_party_mode(dry_run)
         return 0
 
@@ -2263,16 +2819,15 @@ def sync_desktop_third_party_library(source_data_dir: Path, target_data_dir: Pat
         print(f"配置库中没有找到 JSON 配置文件: {source_library}")
         return 1
 
-    print(f"来源configLibrary 配置库: {source_library}")
-    print(f"目标configLibrary 配置库: {target_library}")
+    print(f"来源 API 配置库: {source_library}")
+    print(f"目标 API 配置库: {target_library}")
     if dry_run:
-        print(f"[dry-run] 将同步 {len(json_files)} 个配置文件。")
-        set_deployment_mode_3p(target_data_dir, dry_run, "before-sync-third-party-library")
+        print(f"[dry-run] 将同步 {len(json_files)} 个配置文件，并保留 Anthropic 账号登录入口。")
         return 0
 
     backup = backup_third_party_library(target_data_dir, "before-sync")
     if backup:
-        print(f"已备份目标configLibrary 配置库: {backup}")
+        print(f"已备份目标 API 配置库: {backup}")
 
     target_library.mkdir(parents=True, exist_ok=True)
     for source in json_files:
@@ -2280,23 +2835,24 @@ def sync_desktop_third_party_library(source_data_dir: Path, target_data_dir: Pat
         shutil.copy2(source, target)
         print(f"已同步配置文件: {target.name}")
 
-    set_disable_deployment_mode_chooser(target_data_dir, dry_run)
-    set_deployment_mode_3p(target_data_dir, dry_run, "before-sync-third-party-library")
     if target_data_dir.resolve() == portable_user_data_dir().resolve():
+        clear_portable_deployment_mode(dry_run)
+        clear_disable_deployment_mode_chooser(target_data_dir, dry_run)
+        clear_portable_frontend_cache()
         refresh_launcher_for_third_party_mode(dry_run)
+    print("已同步 API 配置，并保留 Anthropic 账号登录入口。需要直进 API 时，请单独选择“进入 API 模式”。")
     return 0
 
-
-def apply_third_party_inference_config(dry_run: bool = False, force_mode: bool = True) -> int:
+def apply_third_party_inference_config(dry_run: bool = False, force_mode: bool = False) -> int:
     discovered, messages = discover_local_claude_gateway_config()
     if not discovered:
-        print("没有应用 Claude Code 网关配置。")
+        print("没有应用 Claude Code API 配置。")
         for message in messages:
             print(f"  {message}")
-        print("可以在 Developer -> Configure Third-Party Inference[第三方大模型推理] 中手动填写，或把环境变量加入 ~/.claude/settings.json。")
+        print("可以在 Developer -> Configure Third-Party Inference[API 模式配置] 中手动填写，或把环境变量加入 ~/.claude/settings.json。")
         return 0
 
-    print("检测到 Claude Code 网关配置:")
+    print("检测到 Claude Code API 配置:")
     print(f"  Base URL: {discovered['base_url']}")
     print(f"  凭据: {discovered['credential_name']} = {mask_secret(discovered['credential'])}")
     print(f"  认证方式: {discovered['auth_scheme']}")
@@ -2313,6 +2869,19 @@ def apply_third_party_inference_config(dry_run: bool = False, force_mode: bool =
             "inferenceGatewayAuthScheme": discovered["auth_scheme"],
         }
     )
+    models, model_messages = discover_gateway_models(
+        discovered["base_url"],
+        discovered["credential"],
+        discovered["auth_scheme"],
+    )
+    if models:
+        updated["inferenceModels"] = models
+        print(f"已写入 API 模型列表: {', '.join(models[:8])}{' ...' if len(models) > 8 else ''}")
+    else:
+        updated.pop("inferenceModels", None)
+        print("未写入固定 API 模型列表：正常 API 会继续由 Claude Desktop 通过 /v1/models 自动发现。")
+        for message in model_messages:
+            print(f"  {message}")
     if force_mode:
         updated["disableDeploymentModeChooser"] = True
     else:
@@ -2324,10 +2893,11 @@ def apply_third_party_inference_config(dry_run: bool = False, force_mode: bool =
     else:
         mode_changed = clear_portable_deployment_mode(dry_run)
     if not config_changed:
-        print(f"Claude 第三方大模型推理配置已是最新: {config_path}")
+        print(f"Claude API 模式配置已是最新: {config_path}")
         if force_mode and mode_changed:
-            print("已同步进入 3P/API 模式。")
+            print("已进入 API 模式。")
         elif not force_mode:
+            clear_disable_deployment_mode_chooser(data_dir, dry_run)
             print("已保留 Anthropic 登录/模式选择入口。")
         refresh_launcher_for_third_party_mode(dry_run)
         if not force_mode and not dry_run:
@@ -2335,18 +2905,19 @@ def apply_third_party_inference_config(dry_run: bool = False, force_mode: bool =
         return 0
 
     if dry_run:
-        print(f"[dry-run] 将应用 Claude 第三方大模型推理配置: {config_path}")
+        print(f"[dry-run] 将应用 Claude API 模式配置: {config_path}")
         return 0
 
     if config_path.exists():
         backup = backup_file(config_path, "before-third-party-config")
-        print(f"已备份 Claude 第三方大模型推理配置: {backup}")
+        print(f"已备份 Claude API 模式配置: {backup}")
     save_json(config_path, updated)
-    print(f"已应用 Claude 第三方大模型推理配置: {config_path} (id: {config_id})")
+    print(f"已应用 Claude API 模式配置: {config_path} (id: {config_id})")
     if force_mode and mode_changed:
-        print("已同步进入 3P/API 模式。")
+        print("已进入 API 模式。")
     elif not force_mode:
-        print("已预置 3P/API 网关配置，并保留 Anthropic 登录/模式选择入口。")
+        clear_disable_deployment_mode_chooser(data_dir, dry_run)
+        print("已预置 API 模式配置，并保留 Anthropic 账号登录入口。")
     refresh_launcher_for_third_party_mode(dry_run)
     if not force_mode:
         clear_portable_frontend_cache()
@@ -2358,8 +2929,8 @@ def enter_third_party_mode(dry_run: bool = False) -> int:
     data_dir = primary_third_party_data_dir()
     entries = third_party_config_entries(data_dir)
     if not entries:
-        print(f"绿色版没有可用的 3P 网关配置: {third_party_config_library_dir(data_dir)}")
-        print("请先同步 Desktop configLibrary 配置库，或从 Claude Code 生成 3P 配置。")
+        print(f"绿色版没有可用的 API 配置: {third_party_config_library_dir(data_dir)}")
+        print("请先同步 Desktop configLibrary 配置库，或从 Claude Code 生成 API 配置。")
         return 1
 
     meta_path = third_party_config_meta_path(data_dir)
@@ -2403,15 +2974,15 @@ def enter_third_party_mode(dry_run: bool = False) -> int:
     config_changed = updated != current
     mode_changed = set_portable_deployment_mode_3p(dry_run, "before-enter-third-party-mode")
     if not meta_changed and not config_changed and not mode_changed:
-        print(f"绿色版已处于 3P/API 网关 模式: {config_path}")
+        print(f"绿色版已处于 API 模式: {config_path}")
         refresh_launcher_for_third_party_mode(dry_run)
         return 0
 
     if dry_run:
         if meta_changed:
-            print(f"[dry-run] 将把当前 3P 配置设为: {selected['id']} ({meta_path})")
+            print(f"[dry-run] 将把当前 API 配置设为: {selected['id']} ({meta_path})")
         if config_changed:
-            print(f"[dry-run] 将启用 3P/API 网关 模式: {config_path}")
+            print(f"[dry-run] 将启用 API 模式: {config_path}")
         refresh_launcher_for_third_party_mode(dry_run)
         return 0
 
@@ -2419,16 +2990,16 @@ def enter_third_party_mode(dry_run: bool = False) -> int:
         meta_path.parent.mkdir(parents=True, exist_ok=True)
         if meta_path.exists():
             backup = backup_file(meta_path, "before-enter-third-party-mode")
-            print(f"已备份 Claude 第三方推理配置元数据: {backup}")
+            print(f"已备份 Claude API 配置元数据: {backup}")
         save_json(meta_path, meta)
-        print(f"已设置当前 3P 配置: {selected['name']} ({selected['id']})")
+        print(f"已设置当前 API 配置: {selected['name']} ({selected['id']})")
 
     if config_changed:
         if config_path.exists():
             backup = backup_file(config_path, "before-enter-third-party-mode")
-            print(f"已备份 Claude 第三方大模型推理配置: {backup}")
+            print(f"已备份 Claude API 模式配置: {backup}")
         save_json(config_path, updated)
-        print(f"已启用 3P/API 网关 模式: {config_path}")
+        print(f"已启用 API 模式: {config_path}")
 
     refresh_launcher_for_third_party_mode(dry_run)
     print("请完全关闭 Claude zh-CN 后重新启动，让模式切换生效。")
@@ -2467,14 +3038,14 @@ def clear_disable_deployment_mode_chooser(data_dir: Path, dry_run: bool = False)
         previous = updated.pop("disableDeploymentModeChooser", None)
         changed += 1
         if dry_run:
-            print(f"[dry-run] 将取消跳过登录模式选择 ({previous}): {config_path}")
+            print(f"[dry-run] 将取消直进 API 模式 ({previous}): {config_path}")
             continue
 
         if config_path.exists():
             backup = backup_file(config_path, "before-exit-third-party-mode")
-            print(f"已备份 Claude 第三方大模型推理配置: {backup}")
+            print(f"已备份 Claude API 模式配置: {backup}")
         save_json(config_path, updated)
-        print(f"已取消跳过登录模式选择并保留 3P 网关配置: {config_path}")
+        print(f"已取消直进 API 模式并保留 API 配置: {config_path}")
     return changed
 
 
@@ -2492,14 +3063,14 @@ def restore_gateway_provider_markers(data_dir: Path, dry_run: bool = False) -> i
         updated["inferenceProvider"] = "gateway"
         changed += 1
         if dry_run:
-            print(f"[dry-run] 将恢复 3P 网关配置标记: {config_path}")
+            print(f"[dry-run] 将恢复 API 配置标记: {config_path}")
             continue
 
         if config_path.exists():
             backup = backup_file(config_path, "before-restore-gateway-provider")
-            print(f"已备份 Claude 第三方大模型推理配置: {backup}")
+            print(f"已备份 Claude API 模式配置: {backup}")
         save_json(config_path, updated)
-        print(f"已恢复 3P 网关配置标记: {config_path}")
+        print(f"已恢复 API 配置标记: {config_path}")
     return changed
 
 
@@ -2510,9 +3081,9 @@ def exit_third_party_mode(dry_run: bool = False) -> int:
     chooser_changed = clear_disable_deployment_mode_chooser(data_dir, dry_run)
 
     if not mode_changed and provider_changed == 0 and chooser_changed == 0:
-        print("绿色版未强制 3P/API 网关 模式。")
+        print("绿色版未强制 API 模式。")
     else:
-        print("已退出强制 3P/API 网关模式，保留网关配置以便登录页显示两种模式。")
+        print("已退出强制 API 模式，保留 API 配置以便登录页显示账号登录和 API 模式。")
 
     if not dry_run:
         clear_portable_frontend_cache()
@@ -2525,7 +3096,7 @@ def exit_third_party_mode(dry_run: bool = False) -> int:
 
 def show_third_party_inference_config() -> int:
     desktop_sources, desktop_messages = discover_desktop_third_party_sources()
-    print("Claude Desktop 第三方大模型推理configLibrary 配置库:")
+    print("Claude Desktop API configLibrary 配置库:")
     if desktop_sources:
         for index, source in enumerate(desktop_sources, start=1):
             print(f"  [{index}] {source['library']}")
@@ -2542,9 +3113,9 @@ def show_third_party_inference_config() -> int:
 
     print()
     discovered, messages = discover_local_claude_gateway_config()
-    print("Claude Code 网关配置检测:")
+    print("Claude Code API 配置检测:")
     if discovered:
-        print(f"  网关地址[Base URL]: {discovered['base_url']}")
+        print(f"  API 地址[Base URL]: {discovered['base_url']}")
         print(f"  凭据[Credential]: {discovered['credential_name']} = {mask_secret(discovered['credential'])}")
         print(f"  认证方式[Auth scheme]: {discovered['auth_scheme']}")
     else:
@@ -2553,16 +3124,16 @@ def show_third_party_inference_config() -> int:
             print(f"  {message}")
 
     print()
-    print("Claude Desktop 第三方大模型推理配置:")
+    print("Claude Desktop API 模式配置:")
     for data_dir in third_party_data_paths():
         meta_path = third_party_config_meta_path(data_dir)
-        print_path_info("第三方推理元数据", meta_path)
+        print_path_info("API 配置元数据", meta_path)
         meta = load_json_dict(meta_path, label="Claude third-party config metadata")
         applied_id = nonempty_string(meta.get("appliedId"))
         if not applied_id:
             continue
         config_path = third_party_config_path(applied_id, data_dir)
-        print_path_info("当前应用的第三方推理配置", config_path)
+        print_path_info("当前应用的 API 配置", config_path)
         config = load_json_dict(config_path, label="Claude third-party config")
         if config:
             print(f"  inferenceProvider: {config.get('inferenceProvider') or '未设置'}")
@@ -2577,13 +3148,13 @@ def check_third_party_sources() -> int:
     desktop_sources, _ = discover_desktop_third_party_sources()
     code_config, _ = discover_local_claude_gateway_config()
     if desktop_sources or code_config:
-        print("检测到可复用的第三方大模型推理配置。")
+        print("检测到可复用的 API 模式配置。")
         if desktop_sources:
             print(f"  Desktop configLibrary 配置库: {len(desktop_sources)}")
         if code_config:
-            print(f"  Claude Code 网关: {code_config['base_url']}")
+            print(f"  Claude Code API 地址: {code_config['base_url']}")
         return 0
-    print("未检测到可复用的第三方大模型推理配置。")
+    print("未检测到可复用的 API 模式配置。")
     return 10
 
 
@@ -2598,7 +3169,7 @@ def prompt_line(prompt: str) -> str | None:
 
 def choose_desktop_third_party_source(sources: list[dict[str, Any]]) -> Path | None:
     if not sources:
-        print("没有可同步的 Claude Desktop 第三方大模型推理配置。")
+        print("没有可同步的 Claude Desktop API 模式配置。")
         return None
     if len(sources) == 1:
         return sources[0]["data_dir"]
@@ -2625,19 +3196,19 @@ def choose_desktop_third_party_source(sources: list[dict[str, Any]]) -> Path | N
 
 
 def third_party_config_wizard() -> int:
-    print("第三方大模型推理配置向导")
-    print("你可以保持绿色版全新，也可以同步 Claude Desktop configLibrary 配置库，或从 Claude Code 生成配置。")
+    print("API 模式配置向导")
+    print("你可以保持绿色版全新，也可以同步现有 Desktop API 配置，或从 Claude Code 生成 Desktop API 配置。")
     print("访问令牌、API key 等敏感值会在输出中打码。")
     print()
     show_third_party_inference_config()
 
     while True:
         print()
-        print("1. 保持全新，不导入也不修改第三方大模型推理配置")
-        print("2. 同步现有 Claude Desktop configLibrary 配置库 到绿色版")
-        print("3. 从 Claude Code 配置生成 Desktop 网关配置")
-        print("4. 进入 3P/API 网关 模式")
-        print("5. 退出 3P/API 网关 模式，恢复 Anthropic 登录/模式选择")
+        print("1. 保持全新，不导入也不修改 API 配置")
+        print("2. 同步现有 Claude Desktop API 配置到绿色版")
+        print("3. 从 Claude Code 配置生成 Desktop API 配置")
+        print("4. 进入 API 模式")
+        print("5. 退出 API 模式，恢复 Anthropic 账号登录/模式选择")
         print("6. 重新显示检测到的配置")
         print("0. 返回")
         choice = prompt_line("请选择: ")
@@ -2647,7 +3218,7 @@ def third_party_config_wizard() -> int:
         if choice == "0":
             return 0
         if choice == "1":
-            print("已保持全新。没有导入第三方大模型推理配置。")
+            print("已保持全新。没有导入 API 配置。")
             return 0
         if choice == "2":
             sources, _ = discover_desktop_third_party_sources()
@@ -2656,7 +3227,7 @@ def third_party_config_wizard() -> int:
                 continue
             target_data_dir = primary_third_party_data_dir()
             print()
-            print("这会复制configLibrary 配置库 JSON 文件，并启用跳过登录模式选择。")
+            print("这会复制 Desktop API 配置 JSON 文件；默认保留 Anthropic 账号登录入口。")
             print(f"来源: {third_party_config_library_dir(source_data_dir)}")
             print(f"目标: {third_party_config_library_dir(target_data_dir)}")
             answer = prompt_line("输入 SYNC 继续: ")
@@ -2667,19 +3238,19 @@ def third_party_config_wizard() -> int:
         if choice == "3":
             discovered, messages = discover_local_claude_gateway_config()
             if not discovered:
-                print("没有可转换的 Claude Code 网关配置。")
+                print("没有可转换的 Claude Code API 配置。")
                 for message in messages:
                     print(f"  {message}")
                 continue
             print()
-            print("这会把 网关 字段写入 Desktop configLibrary 配置库，并启用跳过登录模式选择。")
+            print("这会把 API 字段写入 Desktop configLibrary 配置库；默认保留 Anthropic 账号登录入口。")
             print(f"Base URL: {discovered['base_url']}")
             print(f"Credential: {discovered['credential_name']} = {mask_secret(discovered['credential'])}")
             answer = prompt_line("输入 APPLY 继续: ")
             if answer != "APPLY":
                 print("已取消。")
                 continue
-            return apply_third_party_inference_config(False)
+            return apply_third_party_inference_config(False, force_mode=False)
         if choice == "4":
             return enter_third_party_mode(False)
         if choice == "5":
@@ -2753,7 +3324,7 @@ def sync_light_user_data(source_dir: Path, target_dir: Path, dry_run: bool = Fal
         print(f"来源和目标相同: {source_dir}")
         return 0
     print("即将同步轻量用户数据。")
-    print("会包含登录态、Local Storage、IndexedDB、3P 配置、MCP/应用配置等。")
+    print("会包含登录态、Local Storage、IndexedDB、API 配置、MCP/应用配置等。")
     print("不会复制 vm_bundles / Cowork VM 大文件。")
     print(f"来源: {source_dir}")
     print(f"目标: {target_dir}")
@@ -2786,7 +3357,7 @@ def choose_config_library_source() -> Path | None:
         library = third_party_config_library_dir(path)
         if library.exists():
             sources.append(path)
-    return choose_data_dir(sources, "请选择 3P configLibrary 配置库来源:", require_exists=True)
+    return choose_data_dir(sources, "请选择 API configLibrary 配置库来源:", require_exists=True)
 
 
 def import_sync_wizard() -> int:
@@ -2801,9 +3372,9 @@ def import_sync_wizard() -> int:
         print("2. 官方 Desktop -> 绿色版（轻量用户数据，不复制 VM）")
         print("3. 绿色版 -> 官方 Desktop（轻量用户数据，不复制 VM）")
         print("4. 自选来源和目标同步轻量用户数据")
-        print("5. 同步 3P configLibrary 配置库到绿色版")
-        print("6. 同步绿色版 3P configLibrary 配置库到官方 Desktop")
-        print("7. 从 Claude Code 生成绿色版 3P 配置")
+        print("5. 同步 API configLibrary 配置库到绿色版")
+        print("6. 同步绿色版 API configLibrary 配置库到官方 Desktop")
+        print("7. 从 Claude Code 生成绿色版 API 配置")
         print("0. 返回")
         choice = prompt_line("请选择: ")
         if choice is None or choice == "0":
@@ -2851,7 +3422,7 @@ def import_sync_wizard() -> int:
             if not source:
                 continue
             target = portable_user_data_dir()
-            answer = prompt_line("输入 SYNC 确认同步 3P 配置库到绿色版: ")
+            answer = prompt_line("输入 SYNC 确认同步 API 配置到绿色版: ")
             if answer == "SYNC":
                 return sync_desktop_third_party_library(source, target)
             print("已取消。")
@@ -2859,18 +3430,18 @@ def import_sync_wizard() -> int:
         if choice == "6":
             source = portable_user_data_dir()
             if not third_party_config_library_dir(source).exists():
-                print(f"绿色版 3P 配置库不存在: {third_party_config_library_dir(source)}")
+                print(f"绿色版 API 配置库不存在: {third_party_config_library_dir(source)}")
                 continue
             target = choose_data_dir(official_user_data_dirs(), "请选择官方 Desktop 目标空间:", require_exists=False)
             if not target:
                 continue
-            answer = prompt_line("输入 SYNC 确认同步绿色版 3P 配置库到官方 Desktop: ")
+            answer = prompt_line("输入 SYNC 确认同步绿色版 API 配置到官方 Desktop: ")
             if answer == "SYNC":
                 return sync_desktop_third_party_library(source, target)
             print("已取消。")
             continue
         if choice == "7":
-            return apply_third_party_inference_config(False)
+            return apply_third_party_inference_config(False, force_mode=False)
         print("未知选项。")
 
 
@@ -3791,6 +4362,8 @@ def initialize_tool(target_dir: Path) -> int:
         print("首次安装将自动下载或复用官方 Claude Desktop，并创建中文绿色版。")
         build_patched_app(initialize_build_args(target_dir))
     apply_third_party_inference_config(False, force_mode=False)
+    clear_portable_deployment_mode(False)
+    clear_disable_deployment_mode_chooser(primary_third_party_data_dir(), False)
     show_oauth_protocol()
     print("初始化完成。")
     return 0
@@ -3921,6 +4494,10 @@ def main() -> int:
     parser.add_argument("--show-oauth-protocol", action="store_true", help="Show current claude:// protocol handler")
     parser.add_argument("--prepare-oauth-login", action="store_true", help="Temporarily point claude:// OAuth callback to the zh-CN launcher")
     parser.add_argument("--restore-oauth-protocol", action="store_true", help="Restore claude:// protocol handler from the latest backup")
+    parser.add_argument("--show-claude-code", action="store_true", help="Show Claude Code install method, version, and command paths")
+    parser.add_argument("--install-claude-code", action="store_true", help="Install or repair Claude Code")
+    parser.add_argument("--update-claude-code", action="store_true", help="Update Claude Code according to the detected install method")
+    parser.add_argument("--uninstall-claude-code", action="store_true", help="Uninstall Claude Code and optionally remove its config")
     parser.add_argument("--apply-cowork-compat", action="store_true", help="Patch portable Claude so Cowork can coexist with the official MSIX version")
     parser.add_argument("--cowork-repair-wizard", action="store_true", help="Open Cowork / VM repair wizard")
     parser.add_argument("--repair-portable-cowork-runtime", action="store_true", help="Sync missing Cowork VM runtime files into the portable profile")
@@ -3955,7 +4532,7 @@ def main() -> int:
     if args.third_party_wizard:
         return third_party_config_wizard()
     if args.apply_third_party_inference:
-        return apply_third_party_inference_config(False)
+        return apply_third_party_inference_config(False, force_mode=False)
     if args.enter_third_party_mode:
         return enter_third_party_mode(False)
     if args.exit_third_party_mode:
@@ -3966,6 +4543,14 @@ def main() -> int:
         return oauth_login_prepare(args.target_dir)
     if args.restore_oauth_protocol:
         return restore_oauth_protocol()
+    if args.show_claude_code:
+        return show_claude_code_status()
+    if args.install_claude_code:
+        return install_claude_code()
+    if args.update_claude_code:
+        return update_claude_code()
+    if args.uninstall_claude_code:
+        return uninstall_claude_code(args.yes)
     if args.apply_cowork_compat:
         return apply_cowork_compat(args.target_dir, args.dry_run)
     if args.cowork_repair_wizard:

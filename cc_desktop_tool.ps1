@@ -88,8 +88,8 @@ function Offer-ThirdPartyWizard {
   Run-Patcher @("--check-third-party-sources")
   if ($script:PatchStatus -eq 0) {
     Write-Host ""
-    Write-Host "Reusable third-party inference config was detected." -ForegroundColor Yellow
-    $OpenWizard = Read-Host "Open third-party model inference config wizard now? (Y/N)"
+    Write-Host "Reusable API mode config was detected." -ForegroundColor Yellow
+    $OpenWizard = Read-Host "Open API mode config wizard now? (Y/N)"
     if ($OpenWizard -match "^[Yy]") {
       Run-Patcher @("--third-party-wizard")
     }
@@ -192,6 +192,33 @@ function Shortcut-Menu {
   }
 }
 
+function ClaudeCode-Menu {
+  while ($true) {
+    Show-Header
+    Write-Host "Claude Code Manager" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  1. Show install status"
+    Write-Host "  2. Install / repair Claude Code - official CMD installer, then npm fallback"
+    Write-Host "  3. Update Claude Code"
+    Write-Host "  4. Fully uninstall Claude Code"
+    Write-Host "  0. Back"
+    Write-Host ""
+    $Choice = Read-Host "Choose"
+    if ($Choice -eq "0") { return }
+    if ($Choice -eq "1") { Run-Patcher @("--show-claude-code"); Pause-Menu; continue }
+    if ($Choice -eq "2") { Run-Patcher @("--install-claude-code"); Pause-Menu; continue }
+    if ($Choice -eq "3") { Run-Patcher @("--update-claude-code"); Pause-Menu; continue }
+    if ($Choice -eq "4") {
+      Write-Host "This uninstalls Claude Code. The script will ask separately before deleting ~/.claude config/auth/MCP data." -ForegroundColor Yellow
+      Run-Patcher @("--uninstall-claude-code")
+      Pause-Menu
+      continue
+    }
+    Write-Host "Unknown option: $Choice" -ForegroundColor Red
+    Pause-Menu
+  }
+}
+
 function Clean-Menu {
   while ($true) {
     Show-Header
@@ -248,19 +275,20 @@ function Clean-Menu {
 
 while ($true) {
   Show-Header
-  Write-Host "  1. First install / initialize - install/repair and preseed gateway config while keeping the mode chooser"
+  Write-Host "  1. First install / initialize - install/repair, preseed API config, and keep account sign-in"
   Write-Host "  2. Launch zh-CN Claude"
   Write-Host "  3. Check for updates"
   Write-Host "  4. Update / rebuild zh-CN portable Claude"
-  Write-Host "  5. Third-party model inference config"
+  Write-Host "  5. API mode config"
   Write-Host "  6. Import / sync config"
   Write-Host "  7. Cowork / VM repair"
   Write-Host "  8. Show paths / diagnostics"
   Write-Host "  9. Shortcut manager"
-  Write-Host " 10. Clean / reset / uninstall"
-  Write-Host " 11. Dual launch / OAuth login repair"
-  Write-Host " 12. Enter 3P/API mode"
-  Write-Host " 13. Exit 3P/API mode"
+  Write-Host " 10. Claude Code manager"
+  Write-Host " 11. Clean / reset / uninstall"
+  Write-Host " 12. Dual launch / OAuth login repair"
+  Write-Host " 13. Enter API mode (skip account sign-in)"
+  Write-Host " 14. Exit API mode (restore account sign-in)"
   Write-Host "  0. Exit"
   Write-Host ""
 
@@ -276,10 +304,11 @@ while ($true) {
   if ($Choice -eq "7") { Run-Patcher @("--cowork-repair-wizard"); Pause-Menu; continue }
   if ($Choice -eq "8") { Run-Patcher @("--show-user-data"); Run-Patcher @("--show-oauth-protocol"); Pause-Menu; continue }
   if ($Choice -eq "9") { Shortcut-Menu; continue }
-  if ($Choice -eq "10") { Clean-Menu; continue }
-  if ($Choice -eq "11") { OAuth-Menu; continue }
-  if ($Choice -eq "12") { Run-Patcher @("--enter-third-party-mode"); Pause-Menu; continue }
-  if ($Choice -eq "13") { Run-Patcher @("--exit-third-party-mode"); Pause-Menu; continue }
+  if ($Choice -eq "10") { ClaudeCode-Menu; continue }
+  if ($Choice -eq "11") { Clean-Menu; continue }
+  if ($Choice -eq "12") { OAuth-Menu; continue }
+  if ($Choice -eq "13") { Run-Patcher @("--enter-third-party-mode"); Pause-Menu; continue }
+  if ($Choice -eq "14") { Run-Patcher @("--exit-third-party-mode"); Pause-Menu; continue }
 
   Write-Host "Unknown option: $Choice" -ForegroundColor Red
   Pause-Menu

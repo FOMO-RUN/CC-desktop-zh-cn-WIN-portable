@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.3.6 - 2026-05-09
+
+### Changed
+
+- 优化顶部工具栏 tooltip：`Search`、`Collapse sidebar`、`Back` 等提示现在会显示为中文。
+- 统一技能页文案，将技能相关入口中的“技巧”改为“技能”，并补齐创建、上传、浏览技能等菜单文案。
+- 补齐内置技能列表的名称与描述中文兜底，包括 `schedule`、`setup-cowork`、`consolidate-memory` 和 `context`。
+- 优化最近使用进入任务列表后的 `Tasks`、`Active`、`Archived`、`All` 等页面文案。
+
 ## v0.3.5 - 2026-05-09
 
 ### Fixed

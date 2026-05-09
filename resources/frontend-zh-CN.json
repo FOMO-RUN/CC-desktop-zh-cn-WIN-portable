@@ -11096,7 +11096,7 @@
   "tb9rWAryya": "还没有自动化任务。",
   "tbEVY0Aea6": "{count, plural, one {# 发现} other {# 发现}}",
   "tbGNma/91b": "拖放要附加的文件",
-  "tbS1OkZta/": "插件已安装。注意：它使用旧命令/格式。两种格式都可以；建议迁移到 Skills/*/SKILL.md。",
+  "tbS1OkZta/": "插件已安装。注意：它使用旧命令/格式。两种格式都可以 — 考虑迁移到 Skills/*/SKILL.md。",
   "tbYQ+VEA0n": "{percentOff}% 折扣{durationInYears, plural, one {# 年} other {# 年}}",
   "tca0Gkdeo8": "P/S",
   "tcwkRQCAtr": "正在设置 Claude 的工作区...",

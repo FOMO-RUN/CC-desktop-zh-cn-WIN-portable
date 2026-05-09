@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.3.10 - 2026-05-09
+
+### Changed
+
+- 补齐内置 Skill 的显示层中文名称和说明，保留 `schedule`、`setup-cowork`、`consolidate-memory`、`context` 等内部命令 ID 为英文，避免破坏默认技能列表和协作窗口匹配。
+- 优化顶部菜单提示、技能页入口和任务列表页文案，修复最近使用进入任务列表后 `Tasks`、`Active`、`Archived`、`All` 等细节回退问题。
+
+### Fixed
+
+- 创建 / 重建快捷方式时会清理误指向绿色版 `Claude.exe` 的裸 `Claude.lnk` 入口，避免绕过 `Claude zh-CN` 启动器、独立用户数据和 Cowork 兼容环境。
+- 清理逻辑只会处理目标位于 `%LOCALAPPDATA%\ClaudeZhCN` 下的直开快捷方式，不会误删官方 Claude 安装版快捷方式。
+
 ## v0.3.9 - 2026-05-09
 
 ### Fixed

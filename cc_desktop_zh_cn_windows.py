@@ -87,6 +87,32 @@ OAUTH_PROTOCOL = "claude"
 OAUTH_REG_PATH = rf"Software\Classes\{OAUTH_PROTOCOL}"
 OAUTH_BACKUP_DIRNAME = "oauth-protocol-backups"
 
+BUILTIN_SKILL_DISPLAY_NAMES: Dict[str, str] = {
+    "schedule": "计划任务",
+    "setup-cowork": "设置 Cowork",
+    "consolidate-memory": "整理记忆",
+    "context": "上下文",
+}
+
+BUILTIN_SKILL_DESCRIPTIONS_ZH: Dict[str, str] = {
+    "Create a scheduled task that can be run on demand or automatically on an interval.": (
+        "创建计划任务，可按需运行，也可按固定间隔自动运行。"
+    ),
+    "Guided Cowork setup — install a matching plugin, try a skill, connect tools.": (
+        "引导设置 Cowork：安装匹配插件、试用 Skill 并连接工具。"
+    ),
+    "Guided Cowork setup бк install a matching plugin, try a skill, connect tools.": (
+        "引导设置 Cowork：安装匹配插件、试用 Skill 并连接工具。"
+    ),
+    "Reflective pass over your memory files — merge duplicates, fix stale facts, prune the index.": (
+        "整理记忆文件：合并重复内容、修正过时信息并精简索引。"
+    ),
+    "Reflective pass over your memory files бк merge duplicates, fix stale facts, prune the index.": (
+        "整理记忆文件：合并重复内容、修正过时信息并精简索引。"
+    ),
+    "Show what's using your context window": "查看上下文窗口占用",
+}
+
 PORTABLE_USER_DATA_MIGRATION_MARKER = ".portable-user-data-migrated-v1.json"
 PORTABLE_USER_DATA_MIGRATION_ITEMS = [
     "claude-code",
@@ -727,6 +753,13 @@ def shortcut_paths() -> Dict[str, Path]:
     }
 
 
+def unsafe_direct_claude_shortcut_paths() -> Dict[str, Path]:
+    return {
+        "桌面直开 Claude": Path.home() / "Desktop" / "Claude.lnk",
+        "开始菜单直开 Claude": roaming_app_data() / "Microsoft/Windows/Start Menu/Programs/Claude.lnk",
+    }
+
+
 def legacy_shortcut_paths() -> Dict[str, Path]:
     return {
         "桌面旧版 WIN CC Desktop": Path.home() / "Desktop" / "WIN CC Desktop zh-CN Portable.lnk",
@@ -1291,6 +1324,52 @@ $link.Save()
         raise SystemExit(result.stdout.strip() or f"Failed to create shortcut: {shortcut}")
 
 
+def read_windows_shortcut(shortcut: Path) -> Optional[Dict[str, str]]:
+    if not shortcut.exists():
+        return None
+    script = f"""
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$shell = New-Object -ComObject WScript.Shell
+$link = $shell.CreateShortcut({ps_single_quote(str(shortcut))})
+[PSCustomObject]@{{
+    TargetPath = $link.TargetPath
+    Arguments = $link.Arguments
+    WorkingDirectory = $link.WorkingDirectory
+}} | ConvertTo-Json -Compress
+"""
+    result = run([powershell_exe(), "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script], check=False)
+    if result.returncode != 0:
+        print(f"警告：无法读取快捷方式 {shortcut}: {result.stdout.strip()}")
+        return None
+    try:
+        data = json.loads(result.stdout.strip())
+    except ValueError:
+        print(f"警告：无法解析快捷方式 {shortcut} 的信息。")
+        return None
+    return {str(key): str(value or "") for key, value in data.items()}
+
+
+def same_windows_path(left: Path, right: Path) -> bool:
+    try:
+        left_key = os.path.normcase(str(left.resolve()))
+    except OSError:
+        left_key = os.path.normcase(os.path.abspath(str(left)))
+    try:
+        right_key = os.path.normcase(str(right.resolve()))
+    except OSError:
+        right_key = os.path.normcase(os.path.abspath(str(right)))
+    return left_key == right_key
+
+
+def direct_claude_shortcut_matches(shortcut: Path, exe: Path) -> bool:
+    info = read_windows_shortcut(shortcut)
+    if not info:
+        return False
+    target = info.get("TargetPath", "").strip()
+    return bool(target) and same_windows_path(Path(target), exe)
+
+
 def create_shortcuts(target_dir: Path, dry_run: bool = False) -> int:
     exe = app_exe(target_dir.expanduser())
     if not exe:
@@ -1303,6 +1382,8 @@ def create_shortcuts(target_dir: Path, dry_run: bool = False) -> int:
         wscript = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32/wscript.exe"
         for label, shortcut in shortcut_paths().items():
             print(f"[dry-run] Would create {label} shortcut: {shortcut} -> {wscript} \"{launcher}\"")
+
+        remove_unsafe_direct_claude_shortcuts(target_dir, dry_run=True)
 
         claude_code = claude_code_command()
         if not claude_code:
@@ -1326,6 +1407,8 @@ def create_shortcuts(target_dir: Path, dry_run: bool = False) -> int:
             icon=exe,
         )
         print(f"已创建 {label} 快捷方式: {shortcut}")
+
+    remove_unsafe_direct_claude_shortcuts(target_dir)
 
     claude_code = claude_code_command()
     if not claude_code:
@@ -1374,12 +1457,41 @@ def delete_if_exists(path: Path, *, strict: bool = True) -> bool:
         return False
 
 
+def matching_unsafe_direct_claude_shortcut_paths(target_dir: Path) -> Dict[str, Path]:
+    exe = app_exe(target_dir.expanduser())
+    if not exe:
+        return {}
+    if not is_within(exe, tool_root()):
+        return {}
+    matches = {}
+    for label, shortcut in unsafe_direct_claude_shortcut_paths().items():
+        if shortcut.exists() and direct_claude_shortcut_matches(shortcut, exe):
+            matches[label] = shortcut
+    return matches
+
+
+def remove_unsafe_direct_claude_shortcuts(target_dir: Path, dry_run: bool = False) -> int:
+    matches = matching_unsafe_direct_claude_shortcut_paths(target_dir)
+    removed = 0
+    for label, shortcut in matches.items():
+        if dry_run:
+            print(f"[dry-run] Would remove {label} 快捷方式: {shortcut}")
+            removed += 1
+            continue
+        if delete_if_exists(shortcut, strict=False):
+            print(f"已删除 {label} 快捷方式: {shortcut}")
+            removed += 1
+    return removed
+
+
 def full_clean(target_dir: Path, yes: bool) -> int:
+    unsafe_shortcuts = matching_unsafe_direct_claude_shortcut_paths(target_dir)
     targets = [
         ("patched app", target_dir.expanduser()),
         ("launcher", launcher_path()),
         ("download cache", tool_root() / "downloads"),
         *[(label, path) for label, path in shortcut_paths().items()],
+        *[(label, path) for label, path in unsafe_shortcuts.items()],
         *[(label, path) for label, path in legacy_shortcut_paths().items()],
         *[(label, path) for label, path in claude_code_shortcut_paths().items()],
     ]
@@ -1763,10 +1875,24 @@ def patch_hardcoded_frontend_strings(app_dir: Path) -> None:
         'children:"Upload skill"': 'children:"上传技能"',
         'children:"Built-in skills"': 'children:"内置技能"',
         'children:"Built-in Skills"': 'children:"内置技能"',
-        'children:"schedule"': 'children:"计划任务"',
-        'children:"setup-cowork"': 'children:"设置 Cowork"',
-        'children:"consolidate-memory"': 'children:"整理记忆"',
-        'children:"context"': 'children:"上下文"',
+        'tooltip:"Collapse sidebar"': 'tooltip:"折叠侧边栏"',
+        'tooltip:"Search"': 'tooltip:"搜索"',
+        'tooltip:n?"Expand sidebar":"Collapse sidebar"': 'tooltip:n?"展开侧边栏":"折叠侧边栏"',
+        '"aria-label":n?"Expand sidebar":"Collapse sidebar"': '"aria-label":n?"展开侧边栏":"折叠侧边栏"',
+        '"aria-label":"Search"': '"aria-label":"搜索"',
+        'i4t={recents:"最近使用",shared:"Shared"}': 'i4t={recents:"最近使用",shared:"共享"}',
+        'l4t={all:"All",active:"Active",archived:"Archived"}': 'l4t={all:"全部",active:"活跃",archived:"已归档"}',
+        'c4t={all:"No tasks yet.",active:"No active tasks.",archived:"No archived tasks."}': (
+            'c4t={all:"暂无任务。",active:"暂无活跃任务。",archived:"暂无已归档任务。"}'
+        ),
+        'u4t={title:"Chats",noun:"chat",nouns:"chats",searchPlaceholder:"Filter chats",noResults:"No chats match your search.",emptyByTab:{recents:"No chats yet.",shared:"You haven\'t shared any chats yet."}}': (
+            'u4t={title:"对话",noun:"对话",nouns:"对话",searchPlaceholder:"筛选对话",'
+            'noResults:"没有匹配搜索的对话。",emptyByTab:{recents:"暂无对话。",shared:"你还没有共享任何对话。"}}'
+        ),
+        'p4t={title:"Tasks",noun:"task",nouns:"tasks",searchPlaceholder:"Filter tasks",noResults:"No tasks match your search.",emptyByTab:{recents:"No tasks yet.",shared:"You haven\'t shared any tasks yet."}}': (
+            'p4t={title:"任务",noun:"任务",nouns:"任务",searchPlaceholder:"筛选任务",'
+            'noResults:"没有匹配搜索的任务。",emptyByTab:{recents:"暂无任务。",shared:"你还没有共享任何任务。"}}'
+        ),
         '"Pull requests"': '"拉取请求"',
         '"Running"': '"正在运行"',
         '"Ran"': '"已执行"',
@@ -2076,6 +2202,181 @@ def patch_hardcoded_frontend_strings(app_dir: Path) -> None:
     print(f"已处理前端硬编码中文文案: {patched_strings} 处替换，涉及 {patched_files} 个文件")
 
 
+def js_string_literal(value: str) -> str:
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
+def builtin_skill_display_map_js() -> str:
+    items = ",".join(
+        f"{js_string_literal(name)}:{js_string_literal(display_name)}"
+        for name, display_name in BUILTIN_SKILL_DISPLAY_NAMES.items()
+    )
+    return f"{{{items}}}"
+
+
+def patch_builtin_skill_frontend_display(app_dir: Path) -> int:
+    assets_dir = app_dir / FRONTEND_ASSETS_REL
+    if not assets_dir.exists():
+        print(f"未找到 Claude 前端资源，跳过内置 Skill 显示名补丁: {assets_dir}")
+        return 0
+
+    display_map = builtin_skill_display_map_js()
+    patched_files = 0
+    patched_strings = 0
+
+    replacements = {
+        # Slash menu inside the chat editor.
+        "skillId:e.name,label:e.name,skillDescription:e.description??\"\"": (
+            f"skillId:e.name,label:({display_map})[e.name]??e.name,"
+            "skillDescription:e.description??\"\""
+        ),
+        # Cowork suggestion chips from LocalAgentModeSessions.getSupportedCommands().
+        "label:e.name,icon:eRe,skillId:e.name,skillDescription:e.description??\"\"": (
+            f"label:({display_map})[e.name]??e.name,icon:eRe,skillId:e.name,"
+            "skillDescription:e.description??\"\""
+        ),
+        # Account/local skill suggestion chips.
+        "label:e.skillName,icon:eRe,skillId:e.skillName,skillDescription:e.skillDescription": (
+            f"label:({display_map})[e.skillName]??e.skillName,icon:eRe,"
+            "skillId:e.skillName,skillDescription:e.skillDescription"
+        ),
+        # Skill chip detail metadata built from Cowork commands.
+        "n.has(e.name)||n.set(e.name,{displayName:e.name,description:e.description??\"\",source:\"cowork\"})": (
+            "n.has(e.name)||n.set(e.name,{"
+            f"displayName:({display_map})[e.name]??e.name,"
+            "description:e.description??\"\",source:\"cowork\"})"
+        ),
+        # Skill chip detail metadata built from account/local skills.
+        "n.set(t.skillName,{displayName:t.skillName,description:t.skillDescription,href:": (
+            f"n.set(t.skillName,{{displayName:({display_map})[t.skillName]??t.skillName,"
+            "description:t.skillDescription,href:"
+        ),
+        # Customize > Skills detail model for local/account skills.
+        "return{id:e.skillId,name:e.skillName,description:e.skillDescription,metadata:": (
+            f"return{{id:e.skillId,name:({display_map})[e.skillName]??e.skillName,"
+            "description:e.skillDescription,metadata:"
+        ),
+        # Customize > Skills built-in skill search/list names. Keep the underlying command name.
+        "k?d.filter(e=>e.name.toLowerCase().includes(k)):d": (
+            f"k?d.filter(e=>(({{...e,name:({display_map})[e.name]??e.name}})"
+            ".name.toLowerCase().includes(k))):d"
+        ),
+        "b.map(e=>s.jsx(vt,{id:e.name,name:e.name,icon:": (
+            "b.map(e=>s.jsx(vt,{id:e.name,"
+            f"name:({display_map})[e.name]??e.name,icon:"
+        ),
+        # BuiltInSkillDetailPanel itself, for route/component splits where the caller is unpatched.
+        "return i.jsx(n,{name:d.name,addedBy:c.Anthropic,description:": (
+            f"return i.jsx(n,{{name:({display_map})[d.name]??d.name,"
+            "addedBy:c.Anthropic,description:"
+        ),
+        # Repair a short-lived unsafe display patch that could leak the translated name into /skill calls.
+        f"w?s.jsx(jt,{{skill:{{...w,name:({display_map})[w.name]??w.name}}}})": (
+            "w?s.jsx(jt,{skill:w})"
+        ),
+    }
+
+    for path in sorted(assets_dir.glob("*.js")):
+        text = path.read_text(encoding="utf-8")
+        patched = text
+        count = 0
+        for source, target in replacements.items():
+            occurrences = patched.count(source)
+            if occurrences:
+                patched = patched.replace(source, target)
+                count += occurrences
+        if patched != text:
+            path.write_text(patched, encoding="utf-8")
+            remove_zst_sibling(path)
+            patched_files += 1
+            patched_strings += count
+
+    print(f"已处理内置 Skill 前端显示名: {patched_strings} 处替换，涉及 {patched_files} 个文件")
+    return patched_strings
+
+
+def read_asar_file_bytes(asar: Path, target_path: str) -> bytes:
+    data = asar.read_bytes()
+    _, _, content_base, header = parse_asar(data)
+    entry_by_path = {path: entry for path, entry in asar_file_entries(header)}
+    target_entry = entry_by_path.get(target_path)
+    if not target_entry:
+        raise SystemExit(f"Cannot read ASAR because {target_path} was not found.")
+    try:
+        offset = content_base + int(target_entry["offset"])
+        size = int(target_entry["size"])
+    except (KeyError, TypeError, ValueError):
+        raise SystemExit(f"Cannot read ASAR because {target_path} has invalid metadata.")
+    return data[offset : offset + size]
+
+
+def patch_builtin_skill_asar_strings(app_dir: Path, dry_run: bool = False) -> int:
+    asar = app_dir.expanduser() / "resources/app.asar"
+    if not asar.exists():
+        print(f"未找到 Claude app.asar，跳过内置 Skill 元数据补丁: {asar}")
+        return 0
+
+    target_path = ".vite/build/index.js"
+    try:
+        original = read_asar_file_bytes(asar, target_path)
+        text = original.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise SystemExit(f"Cannot decode {target_path} from ASAR as UTF-8: {exc}")
+
+    replacements = BUILTIN_SKILL_DESCRIPTIONS_ZH
+    source_count = sum(text.count(source) for source in replacements)
+    translated_count = sum(text.count(target) for target in replacements.values())
+
+    if source_count == 0:
+        if translated_count:
+            print(f"内置 Skill 元数据已是中文: {asar}")
+            if not dry_run:
+                current_hash = asar_header_hash(asar.read_bytes())
+                patch_exe_asar_header_hash(app_dir, current_hash, backup_header_hashes(asar), "before-builtin-skills-zh-CN")
+        else:
+            print(f"未在 ASAR 中找到待翻译的内置 Skill 元数据，跳过: {asar}")
+        return 0
+
+    if dry_run:
+        print(f"[dry-run] Would patch {source_count} built-in Skill metadata string(s) in {asar}.")
+        return 0
+
+    def patcher(chunk: bytes) -> bytes:
+        patched = chunk.decode("utf-8")
+        for source, target in replacements.items():
+            patched = patched.replace(source, target)
+        return patched.encode("utf-8")
+
+    backup = backup_file(asar, "before-builtin-skills-zh-CN")
+    try:
+        changed, old_header_hash, new_header_hash = patch_asar_file_bytes(asar, target_path, patcher)
+    except PermissionError:
+        if backup.exists():
+            shutil.copy2(backup, asar)
+        raise SystemExit(
+            "无法补丁内置 Skill 元数据，因为 Windows 拒绝访问 app.asar。"
+            "请完全关闭 Claude 后再运行。"
+        )
+    except Exception:
+        if backup.exists():
+            shutil.copy2(backup, asar)
+        raise
+
+    if not changed:
+        print(f"内置 Skill 元数据无需更新: {asar}")
+        return 0
+
+    print(f"已备份 Claude app.asar: {backup}")
+    print(f"已处理内置 Skill 元数据中文说明: {source_count} 处替换")
+    patch_exe_asar_header_hash(
+        app_dir,
+        new_header_hash,
+        [old_header_hash, *backup_header_hashes(asar)],
+        "before-builtin-skills-zh-CN",
+    )
+    return source_count
+
+
 FIRST_RUN_FRONTEND_TRANSLATIONS = {
     "/aBLH2Kytu": "开始使用",
     "Ub+AGcdPg6": "登录",
@@ -2277,11 +2578,13 @@ def apply_locale_resources(app_dir: Path, dry_run: bool = False) -> int:
     require_file(DESKTOP_TRANSLATION)
     patch_language_whitelist(app_dir)
     patch_hardcoded_frontend_strings(app_dir)
+    patch_builtin_skill_frontend_display(app_dir)
     patch_frontend_fallback_locale(app_dir)
     merge_frontend_locale(app_dir)
     install_desktop_locale(app_dir)
     install_statsig_locale(app_dir)
     patch_hardcoded_desktop_menu_strings(app_dir, dry_run)
+    patch_builtin_skill_asar_strings(app_dir, dry_run)
     patch_login_page_preload_translation(app_dir, dry_run)
     if not dry_run:
         clear_portable_frontend_cache()
@@ -4415,6 +4718,25 @@ def verify(app_dir: Path) -> None:
     if not any('"zh-CN"' in p.read_text(encoding="utf-8") for p in index_files):
         raise SystemExit("Verification failed: frontend language whitelist does not contain zh-CN")
     print("已验证前端语言白名单包含 zh-CN")
+
+    asar = app_dir / "resources/app.asar"
+    if asar.exists():
+        bundle = read_asar_file_bytes(asar, ".vite/build/index.js").decode("utf-8", errors="replace")
+        required_tokens = [
+            'name:"schedule"',
+            'name:"setup-cowork"',
+            '"consolidate-memory"',
+            'name:"context"',
+        ]
+        missing_tokens = [token for token in required_tokens if token not in bundle]
+        if missing_tokens:
+            raise SystemExit(
+                "Verification failed: built-in Skill internal names were changed or are missing: "
+                + ", ".join(missing_tokens)
+            )
+        if not any(text in bundle for text in BUILTIN_SKILL_DESCRIPTIONS_ZH.values()):
+            raise SystemExit("Verification failed: built-in Skill zh-CN descriptions were not found")
+        print("已验证内置 Skill 内部名称保持英文，说明已中文化")
 
 
 def launch(app_dir: Path) -> None:

@@ -2,13 +2,18 @@
 
 一键生成可与官方安装版共存的中文绿色版 CC Desktop，并支持 Claude Desktop 的 API 模式配置。
 
-当前版本：`v0.3.8`
+当前版本：`v0.3.9`
 
 它会从官方 Windows MSIX 或本机已安装应用生成一个独立中文副本，默认放在 `%LOCALAPPDATA%\ClaudeZhCN` 下运行。原版 Claude Desktop 不会被修改，汉化版和原版可以共存。
 
 即使你没有安装过 Claude Desktop，也可以通过本工具下载官方 MSIX 并生成中文绿色版。仓库只包含补丁脚本和翻译资源，不包含官方应用、安装包、账号数据或访问令牌。
 
 > CC 在本项目中指 Claude / Claude Code 相关桌面体验的缩写。本项目是独立社区工具，非官方项目。发布或使用前请阅读 [DISCLAIMER.md](DISCLAIMER.md)。
+
+## v0.3.9 重点
+
+- 进一步收窄硬编码文案替换范围，避免替换 `Skill`、`Skills`、`All` 等可能作为内部枚举使用的短字符串。
+- 本地重新从缓存 MSIX 生成绿色版，确认内置技能相关 ID 保留英文，默认列表可恢复匹配。
 
 ## v0.3.8 重点
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.3.9 - 2026-05-09
+
+### Fixed
+
+- 进一步收窄前端硬编码替换范围，不再全局替换 `Skill`、`Skills`、`Search`、`Back`、`All`、`Author`、`Description` 等短字符串，避免误伤前端内部枚举、分类或数据匹配。
+- 保留更具体的 `children:`、`aria-label:`、`title:` 和句子级替换，降低中文化对功能数据的影响。
+
 ## v0.3.8 - 2026-05-09
 
 ### Fixed

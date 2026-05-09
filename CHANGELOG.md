@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.3.5 - 2026-05-09
+
+### Fixed
+
+- 修复 Python 3.7.x / 3.8.x / 3.9.x 运行 Cowork / VM 兼容补丁时，因 `zip(..., strict=False)` 触发 `TypeError: zip() takes no keyword arguments` 的问题。
+- 将脚本类型注解降级为 Python 3.7 兼容写法，避免 `list[...]`、`dict[...]`、`str | None` 等新式注解在旧版 Python 或会求值注解的工具中造成兼容性问题。
+
 ## v0.3.4 - 2026-05-08
 
 ### Added

@@ -32,7 +32,7 @@ import urllib.request
 import uuid
 import zipfile
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 try:
     import winreg
@@ -73,7 +73,7 @@ COWORK_PORTABLE_ENV_TOKEN = b"process.env.CZCOWORK"
 if len(COWORK_WINDOWS_STORE_TOKEN) != len(COWORK_PORTABLE_ENV_TOKEN):
     raise RuntimeError("Cowork portable patch tokens must have the same length.")
 
-COWORK_NAMESPACE_REPLACEMENTS: list[tuple[bytes, bytes]] = [
+COWORK_NAMESPACE_REPLACEMENTS: List[Tuple[bytes, bytes]] = [
     (b"cowork-vm-service", b"ccdesk-vm-service"),
     (b"cowork-vm-portabl", b"ccdesk-vm-service"),
     (b"cowork-vm-nat", b"ccdesk-vm-nat"),
@@ -141,7 +141,7 @@ if hasattr(sys.stdout, "reconfigure"):
         pass
 
 
-def run(cmd: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
+def run(cmd: List[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=check)
 
 
@@ -194,11 +194,11 @@ def portable_user_data_dir() -> Path:
     return roaming_app_data() / "ClaudeZhCN-3p"
 
 
-def legacy_portable_user_data_dirs() -> list[Path]:
+def legacy_portable_user_data_dirs() -> List[Path]:
     return [roaming_app_data() / "ClaudeZhCN"]
 
 
-def official_user_data_dirs() -> list[Path]:
+def official_user_data_dirs() -> List[Path]:
     paths = [
         roaming_app_data() / "Claude",
         roaming_app_data() / "Claude-3p",
@@ -215,8 +215,8 @@ def official_user_data_dirs() -> list[Path]:
                     ]
                 )
 
-    unique: list[Path] = []
-    seen: set[str] = set()
+    unique: List[Path] = []
+    seen: Set[str] = set()
     for path in paths:
         key = str(path).lower()
         if key not in seen:
@@ -225,14 +225,14 @@ def official_user_data_dirs() -> list[Path]:
     return unique
 
 
-def portable_user_data_migration_sources() -> list[Path]:
+def portable_user_data_migration_sources() -> List[Path]:
     paths = [
         *legacy_portable_user_data_dirs(),
     ]
 
     target = portable_user_data_dir().resolve()
-    unique: list[Path] = []
-    seen: set[str] = set()
+    unique: List[Path] = []
+    seen: Set[str] = set()
     for path in paths:
         try:
             if path.resolve() == target:
@@ -254,7 +254,7 @@ def ps_single_quote(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
-def normalize_version(value: str | None) -> str | None:
+def normalize_version(value: Optional[str]) -> Optional[str]:
     if not value:
         return None
     value = value.strip()
@@ -264,7 +264,7 @@ def normalize_version(value: str | None) -> str | None:
     return ".".join(parts)
 
 
-def latest_msix_info() -> dict[str, str | None]:
+def latest_msix_info() -> Dict[str, Optional[str]]:
     request = urllib.request.Request(LATEST_MSIX_URL, headers=DOWNLOAD_HEADERS)
     try:
         with urllib.request.urlopen(request) as response:
@@ -278,7 +278,7 @@ def latest_msix_info() -> dict[str, str | None]:
     return {"version": version, "url": url, "size": size}
 
 
-def app_exe(app_dir: Path) -> Path | None:
+def app_exe(app_dir: Path) -> Optional[Path]:
     for name in ["Claude.exe", "claude.exe"]:
         exe = app_dir / name
         if exe.exists():
@@ -286,7 +286,7 @@ def app_exe(app_dir: Path) -> Path | None:
     return None
 
 
-def app_version(app_dir: Path) -> str | None:
+def app_version(app_dir: Path) -> Optional[str]:
     exe = app_exe(app_dir)
     if not exe:
         return None
@@ -312,7 +312,7 @@ def check_update(target_dir: Path) -> int:
     return 10
 
 
-def find_appx_install_location() -> Path | None:
+def find_appx_install_location() -> Optional[Path]:
     script = (
         "Get-AppxPackage -Name Claude -ErrorAction SilentlyContinue | "
         "Sort-Object Version -Descending | "
@@ -350,7 +350,7 @@ def normalize_app_dir(source: Path) -> Path:
     raise SystemExit(f"Could not identify a Claude app directory from: {source}")
 
 
-def find_source_app_dir() -> Path | None:
+def find_source_app_dir() -> Optional[Path]:
     appx_location = find_appx_install_location()
     if appx_location:
         try:
@@ -372,7 +372,7 @@ def find_source_app_dir() -> Path | None:
     return None
 
 
-def user_data_paths() -> list[Path]:
+def user_data_paths() -> List[Path]:
     paths = [
         portable_user_data_dir(),
         *legacy_portable_user_data_dirs(),
@@ -392,8 +392,8 @@ def user_data_paths() -> list[Path]:
                     ]
                 )
 
-    unique: list[Path] = []
-    seen: set[str] = set()
+    unique: List[Path] = []
+    seen: Set[str] = set()
     for path in paths:
         key = str(path).lower()
         if key not in seen:
@@ -402,7 +402,7 @@ def user_data_paths() -> list[Path]:
     return unique
 
 
-def third_party_data_paths() -> list[Path]:
+def third_party_data_paths() -> List[Path]:
     paths = [
         portable_user_data_dir(),
         *legacy_portable_user_data_dirs(),
@@ -416,8 +416,8 @@ def third_party_data_paths() -> list[Path]:
             for package in packages.glob(pattern):
                 paths.append(package / "LocalCache/Roaming/Claude-3p")
 
-    unique: list[Path] = []
-    seen: set[str] = set()
+    unique: List[Path] = []
+    seen: Set[str] = set()
     for path in paths:
         key = str(path).lower()
         if key not in seen:
@@ -430,19 +430,19 @@ def primary_third_party_data_dir() -> Path:
     return third_party_data_paths()[0]
 
 
-def third_party_config_library_dir(data_dir: Path | None = None) -> Path:
+def third_party_config_library_dir(data_dir: Optional[Path] = None) -> Path:
     return (data_dir or primary_third_party_data_dir()) / "configLibrary"
 
 
-def third_party_config_meta_path(data_dir: Path | None = None) -> Path:
+def third_party_config_meta_path(data_dir: Optional[Path] = None) -> Path:
     return third_party_config_library_dir(data_dir) / "_meta.json"
 
 
-def third_party_config_path(config_id: str, data_dir: Path | None = None) -> Path:
+def third_party_config_path(config_id: str, data_dir: Optional[Path] = None) -> Path:
     return third_party_config_library_dir(data_dir) / f"{config_id}.json"
 
 
-def claude_code_config_paths() -> list[Path]:
+def claude_code_config_paths() -> List[Path]:
     claude_dir = Path.home() / ".claude"
     return [
         claude_dir / "settings.json",
@@ -510,10 +510,10 @@ def copy_tree_long_path(
     source: Path,
     target: Path,
     overwrite_files: bool,
-    errors: list[str] | None = None,
+    errors: Optional[List[str]] = None,
     *,
-    excluded_names: set[str] | None = None,
-) -> tuple[int, int]:
+    excluded_names: Optional[Set[str]] = None,
+) -> Tuple[int, int]:
     copied_files = 0
     skipped_files = 0
     excluded_names = excluded_names or set()
@@ -565,7 +565,7 @@ def copy_tree_long_path(
     return copied_files, skipped_files
 
 
-def backup_path_to_tool(path: Path, reason: str) -> Path | None:
+def backup_path_to_tool(path: Path, reason: str) -> Optional[Path]:
     if not path.exists():
         return None
     stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -584,14 +584,14 @@ def backup_path_to_tool(path: Path, reason: str) -> Path | None:
 def copy_named_items(
     source_dir: Path,
     target_dir: Path,
-    names: list[str],
+    names: List[str],
     *,
     overwrite: bool,
     backup_existing: bool,
     reason: str,
     exclude_vm: bool = True,
-) -> tuple[int, int, list[str]]:
-    errors: list[str] = []
+) -> Tuple[int, int, List[str]]:
+    errors: List[str] = []
     copied = 0
     skipped = 0
     excluded = {"vm_bundles"} if exclude_vm else set()
@@ -720,14 +720,14 @@ def show_user_data(target_dir: Path) -> int:
     return 0
 
 
-def shortcut_paths() -> dict[str, Path]:
+def shortcut_paths() -> Dict[str, Path]:
     return {
         "桌面 Claude zh-CN": Path.home() / "Desktop" / "Claude zh-CN.lnk",
         "开始菜单 Claude zh-CN": roaming_app_data() / "Microsoft/Windows/Start Menu/Programs/Claude zh-CN.lnk",
     }
 
 
-def legacy_shortcut_paths() -> dict[str, Path]:
+def legacy_shortcut_paths() -> Dict[str, Path]:
     return {
         "桌面旧版 WIN CC Desktop": Path.home() / "Desktop" / "WIN CC Desktop zh-CN Portable.lnk",
         "开始菜单旧版 WIN CC Desktop": roaming_app_data()
@@ -738,14 +738,14 @@ def legacy_shortcut_paths() -> dict[str, Path]:
     }
 
 
-def claude_code_shortcut_paths() -> dict[str, Path]:
+def claude_code_shortcut_paths() -> Dict[str, Path]:
     return {
         "桌面 Claude Code": Path.home() / "Desktop" / "Claude Code.lnk",
         "开始菜单 Claude Code": roaming_app_data() / "Microsoft/Windows/Start Menu/Programs/Claude Code.lnk",
     }
 
 
-def claude_code_command() -> Path | None:
+def claude_code_command() -> Optional[Path]:
     command = shutil.which("claude")
     candidates = []
     if command:
@@ -763,7 +763,7 @@ def claude_code_command() -> Path | None:
         ]
     )
 
-    seen: set[str] = set()
+    seen: Set[str] = set()
     for candidate in candidates:
         key = str(candidate).lower()
         if key in seen:
@@ -779,7 +779,7 @@ CLAUDE_CODE_NPM_PACKAGE = "@anthropic-ai/claude-code"
 CLAUDE_CODE_NATIVE_CMD_INSTALLER_URL = "https://claude.ai/install.cmd"
 
 
-def command_output(cmd: list[str], timeout: int = 60) -> tuple[int, str]:
+def command_output(cmd: List[str], timeout: int = 60) -> Tuple[int, str]:
     try:
         result = subprocess.run(
             cmd,
@@ -797,8 +797,8 @@ def command_output(cmd: list[str], timeout: int = 60) -> tuple[int, str]:
         return 124, output.strip()
 
 
-def claude_code_command_paths() -> list[Path]:
-    candidates: list[Path] = []
+def claude_code_command_paths() -> List[Path]:
+    candidates: List[Path] = []
     code, output = command_output(["where.exe", "claude"], timeout=15)
     if code == 0:
         candidates.extend(Path(line.strip()) for line in output.splitlines() if line.strip())
@@ -817,8 +817,8 @@ def claude_code_command_paths() -> list[Path]:
             roaming_app_data() / "npm/claude.bat",
         ]
     )
-    seen: set[str] = set()
-    existing: list[Path] = []
+    seen: Set[str] = set()
+    existing: List[Path] = []
     for candidate in candidates:
         key = str(candidate).lower()
         if key in seen:
@@ -829,7 +829,7 @@ def claude_code_command_paths() -> list[Path]:
     return existing
 
 
-def claude_code_version() -> str | None:
+def claude_code_version() -> Optional[str]:
     command = claude_code_command()
     if not command:
         return None
@@ -843,7 +843,7 @@ def winget_available() -> bool:
     return shutil.which("winget") is not None
 
 
-def node_major_version() -> int | None:
+def node_major_version() -> Optional[int]:
     if shutil.which("node") is None:
         return None
     code, output = command_output(["node", "--version"], timeout=20)
@@ -877,7 +877,7 @@ def npm_claude_code_installed() -> bool:
     return isinstance(dependencies, dict) and CLAUDE_CODE_NPM_PACKAGE in dependencies
 
 
-def native_claude_code_paths() -> list[Path]:
+def native_claude_code_paths() -> List[Path]:
     paths = [
         Path.home() / ".local/bin/claude.exe",
         Path.home() / ".local/bin/claude",
@@ -886,8 +886,8 @@ def native_claude_code_paths() -> list[Path]:
     return [path for path in paths if path.exists()]
 
 
-def detect_claude_code_install_methods() -> list[str]:
-    methods: list[str] = []
+def detect_claude_code_install_methods() -> List[str]:
+    methods: List[str] = []
     if winget_claude_code_installed():
         methods.append("winget")
     if npm_claude_code_installed():
@@ -930,7 +930,7 @@ def show_claude_code_status() -> int:
     return 0
 
 
-def run_visible(cmd: list[str], cwd: Path | None = None) -> int:
+def run_visible(cmd: List[str], cwd: Optional[Path] = None) -> int:
     print("执行命令:")
     print("  " + " ".join(cmd))
     if cwd:
@@ -1056,7 +1056,7 @@ def update_claude_code() -> int:
     return status
 
 
-def claude_code_config_paths_for_removal() -> list[Path]:
+def claude_code_config_paths_for_removal() -> List[Path]:
     return [
         Path.home() / ".claude",
         Path.home() / ".claude.json",
@@ -1086,7 +1086,7 @@ def uninstall_claude_code(yes: bool) -> int:
             return 0
 
     methods = detect_claude_code_install_methods()
-    statuses: list[int] = []
+    statuses: List[int] = []
     if "winget" in methods:
         statuses.append(run_visible(["winget", "uninstall", "--id", CLAUDE_CODE_WINGET_ID, "--exact", "--accept-source-agreements"]))
     if "npm" in methods:
@@ -1172,7 +1172,7 @@ def protocol_backup_dir() -> Path:
     return tool_root() / OAUTH_BACKUP_DIRNAME
 
 
-def read_oauth_protocol_command() -> str | None:
+def read_oauth_protocol_command() -> Optional[str]:
     if winreg is None:
         return None
     try:
@@ -1183,7 +1183,7 @@ def read_oauth_protocol_command() -> str | None:
         return None
 
 
-def backup_oauth_protocol(reason: str) -> Path | None:
+def backup_oauth_protocol(reason: str) -> Optional[Path]:
     current = read_oauth_protocol_command()
     if current is None:
         print(f"没有找到 HKCU 下的 {OAUTH_PROTOCOL}:// 回调处理器，无需备份。")
@@ -1222,12 +1222,12 @@ def set_oauth_protocol_to_launcher(target_dir: Path) -> int:
     return 0
 
 
-def latest_oauth_protocol_backup() -> Path | None:
+def latest_oauth_protocol_backup() -> Optional[Path]:
     backups = sorted(protocol_backup_dir().glob(f"{OAUTH_PROTOCOL}-protocol-*.json"), reverse=True)
     return backups[0] if backups else None
 
 
-def restore_oauth_protocol(backup_path: Path | None = None) -> int:
+def restore_oauth_protocol(backup_path: Optional[Path] = None) -> int:
     if winreg is None:
         print("当前 Python 运行环境无法访问 Windows 注册表。")
         return 1
@@ -1270,9 +1270,9 @@ def create_windows_shortcut(
     target: Path,
     description: str,
     *,
-    arguments: str | None = None,
-    working_directory: Path | None = None,
-    icon: Path | None = None,
+    arguments: Optional[str] = None,
+    working_directory: Optional[Path] = None,
+    icon: Optional[Path] = None,
 ) -> None:
     shortcut.parent.mkdir(parents=True, exist_ok=True)
     script = f"""
@@ -1554,7 +1554,7 @@ def invalid_msix_message(path: Path, headline: str) -> str:
     return "\n".join(lines)
 
 
-def backup_existing_target(target: Path, dry_run: bool) -> Path | None:
+def backup_existing_target(target: Path, dry_run: bool) -> Optional[Path]:
     if not target.exists():
         return None
     stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -2255,7 +2255,7 @@ def apply_locale_resources(app_dir: Path, dry_run: bool = False) -> int:
     return 0
 
 
-def merge_frontend_locale(app_dir: Path) -> tuple[int, int, int]:
+def merge_frontend_locale(app_dir: Path) -> Tuple[int, int, int]:
     source = app_dir / FRONTEND_I18N_REL / "en-US.json"
     target = app_dir / FRONTEND_I18N_REL / "zh-CN.json"
     require_file(source)
@@ -2266,7 +2266,7 @@ def merge_frontend_locale(app_dir: Path) -> tuple[int, int, int]:
     if not isinstance(en, dict) or not isinstance(zh_pack, dict):
         raise SystemExit("Unsupported frontend i18n JSON shape.")
 
-    merged: dict[str, Any] = {}
+    merged: Dict[str, Any] = {}
     translated = 0
     fallback = 0
     for key, value in en.items():
@@ -2350,7 +2350,7 @@ def clear_portable_frontend_cache() -> int:
     return removed
 
 
-def config_paths() -> list[Path]:
+def config_paths() -> List[Path]:
     paths = [
         portable_user_data_dir() / "config.json",
         roaming_app_data() / "Claude/config.json",
@@ -2362,8 +2362,8 @@ def config_paths() -> list[Path]:
         for package in packages.glob("*Anthropic*Claude*"):
             paths.append(package / "LocalCache/Roaming/Claude/config.json")
 
-    unique: list[Path] = []
-    seen: set[str] = set()
+    unique: List[Path] = []
+    seen: Set[str] = set()
     for path in paths:
         key = str(path).lower()
         if key not in seen:
@@ -2372,7 +2372,7 @@ def config_paths() -> list[Path]:
     return unique
 
 
-def developer_settings_paths() -> list[Path]:
+def developer_settings_paths() -> List[Path]:
     paths = [
         portable_user_data_dir() / "developer_settings.json",
         roaming_app_data() / "Claude/developer_settings.json",
@@ -2384,8 +2384,8 @@ def developer_settings_paths() -> list[Path]:
         for package in packages.glob("*Anthropic*Claude*"):
             paths.append(package / "LocalCache/Roaming/Claude/developer_settings.json")
 
-    unique: list[Path] = []
-    seen: set[str] = set()
+    unique: List[Path] = []
+    seen: Set[str] = set()
     for path in paths:
         key = str(path).lower()
         if key not in seen:
@@ -2412,7 +2412,7 @@ def unique_backup_path(path: Path) -> Path:
     raise SystemExit(f"Could not create a unique backup path near: {path}")
 
 
-def load_json_dict(path: Path, *, backup_invalid: bool = False, label: str = "JSON") -> dict[str, Any]:
+def load_json_dict(path: Path, *, backup_invalid: bool = False, label: str = "JSON") -> Dict[str, Any]:
     if not path.exists():
         return {}
     try:
@@ -2429,7 +2429,7 @@ def load_json_dict(path: Path, *, backup_invalid: bool = False, label: str = "JS
         return {}
 
 
-def mask_secret(value: str | None) -> str:
+def mask_secret(value: Optional[str]) -> str:
     if not value:
         return ""
     value = value.strip()
@@ -2438,7 +2438,7 @@ def mask_secret(value: str | None) -> str:
     return value[:4] + "***" + value[-4:]
 
 
-def nonempty_string(value: Any) -> str | None:
+def nonempty_string(value: Any) -> Optional[str]:
     if isinstance(value, str) and value.strip():
         return value.strip()
     return None
@@ -2454,20 +2454,20 @@ def infer_gateway_auth_scheme(base_url: str, credential_name: str) -> str:
     return "bearer"
 
 
-def third_party_config_entries(data_dir: Path) -> list[dict[str, Any]]:
+def third_party_config_entries(data_dir: Path) -> List[Dict[str, Any]]:
     library = third_party_config_library_dir(data_dir)
     meta_path = third_party_config_meta_path(data_dir)
     if not library.exists():
         return []
 
     meta = load_json_dict(meta_path, label="Claude third-party config metadata")
-    candidate_paths: list[Path] = []
+    candidate_paths: List[Path] = []
     applied_id = nonempty_string(meta.get("appliedId"))
     if applied_id:
         candidate_paths.append(third_party_config_path(applied_id, data_dir))
 
     entries = meta.get("entries")
-    names_by_id: dict[str, str] = {}
+    names_by_id: Dict[str, str] = {}
     if isinstance(entries, list):
         for entry in entries:
             if not isinstance(entry, dict):
@@ -2485,7 +2485,7 @@ def third_party_config_entries(data_dir: Path) -> list[dict[str, Any]]:
             continue
         candidate_paths.append(config_path)
 
-    valid: list[dict[str, Any]] = []
+    valid: List[Dict[str, Any]] = []
     for config_path in candidate_paths:
         data = load_json_dict(config_path, label="Claude third-party config")
         base_url = nonempty_string(data.get("inferenceGatewayBaseUrl"))
@@ -2515,9 +2515,9 @@ def third_party_config_entries(data_dir: Path) -> list[dict[str, Any]]:
     return valid
 
 
-def discover_desktop_third_party_sources() -> tuple[list[dict[str, Any]], list[str]]:
-    sources: list[dict[str, Any]] = []
-    messages: list[str] = []
+def discover_desktop_third_party_sources() -> Tuple[List[Dict[str, Any]], List[str]]:
+    sources: List[Dict[str, Any]] = []
+    messages: List[str] = []
     for data_dir in third_party_data_paths():
         library = third_party_config_library_dir(data_dir)
         if not library.exists():
@@ -2531,13 +2531,13 @@ def discover_desktop_third_party_sources() -> tuple[list[dict[str, Any]], list[s
     return sources, messages
 
 
-def discover_local_claude_gateway_config() -> tuple[dict[str, Any] | None, list[str]]:
-    messages: list[str] = []
-    base_url: str | None = None
-    base_source: str | None = None
-    credential: str | None = None
-    credential_name: str | None = None
-    credential_source: str | None = None
+def discover_local_claude_gateway_config() -> Tuple[Optional[Dict[str, Any]], List[str]]:
+    messages: List[str] = []
+    base_url: Optional[str] = None
+    base_source: Optional[str] = None
+    credential: Optional[str] = None
+    credential_name: Optional[str] = None
+    credential_source: Optional[str] = None
 
     def take_base(value: Any, source: str) -> None:
         nonlocal base_url, base_source
@@ -2611,7 +2611,7 @@ def discover_local_claude_gateway_config() -> tuple[dict[str, Any] | None, list[
     )
 
 
-def gateway_models_endpoint_candidates(base_url: str) -> list[str]:
+def gateway_models_endpoint_candidates(base_url: str) -> List[str]:
     parsed = urllib.parse.urlparse(base_url)
     normalized = base_url.rstrip("/")
     candidates = [normalized + "/v1/models"]
@@ -2622,8 +2622,8 @@ def gateway_models_endpoint_candidates(base_url: str) -> list[str]:
     return list(dict.fromkeys(candidates))
 
 
-def discover_gateway_models(base_url: str, credential: str, auth_scheme: str) -> tuple[list[str], list[str]]:
-    messages: list[str] = []
+def discover_gateway_models(base_url: str, credential: str, auth_scheme: str) -> Tuple[List[str], List[str]]:
+    messages: List[str] = []
     headers = {
         "Accept": "application/json",
         "User-Agent": DOWNLOAD_HEADERS["User-Agent"],
@@ -2654,9 +2654,9 @@ def discover_gateway_models(base_url: str, credential: str, auth_scheme: str) ->
             messages.append(f"{endpoint}: response has no model list")
             continue
 
-        models: list[str] = []
+        models: List[str] = []
         for item in raw_models:
-            model_id: str | None = None
+            model_id: Optional[str] = None
             if isinstance(item, dict):
                 model_id = nonempty_string(item.get("id")) or nonempty_string(item.get("name"))
             elif isinstance(item, str):
@@ -2673,7 +2673,7 @@ def discover_gateway_models(base_url: str, credential: str, auth_scheme: str) ->
     return [], messages
 
 
-def backup_third_party_library(data_dir: Path, reason: str) -> Path | None:
+def backup_third_party_library(data_dir: Path, reason: str) -> Optional[Path]:
     library = third_party_config_library_dir(data_dir)
     if not library.exists():
         return None
@@ -2685,13 +2685,13 @@ def backup_third_party_library(data_dir: Path, reason: str) -> Path | None:
     return backup
 
 
-def third_party_write_targets() -> list[Path]:
+def third_party_write_targets() -> List[Path]:
     paths = third_party_data_paths()
     existing = [path for path in paths if path.exists() or third_party_config_library_dir(path).exists()]
     return existing or [primary_third_party_data_dir()]
 
 
-def ensure_third_party_config_meta(data_dir: Path, dry_run: bool) -> tuple[str, Path]:
+def ensure_third_party_config_meta(data_dir: Path, dry_run: bool) -> Tuple[str, Path]:
     library = third_party_config_library_dir(data_dir)
     meta_path = third_party_config_meta_path(data_dir)
     data = load_json_dict(meta_path, backup_invalid=True, label="Claude third-party config metadata")
@@ -2705,7 +2705,7 @@ def ensure_third_party_config_meta(data_dir: Path, dry_run: bool) -> tuple[str, 
     if not isinstance(entries, list):
         entries = []
 
-    normalized_entries: list[dict[str, Any]] = []
+    normalized_entries: List[Dict[str, Any]] = []
     has_applied = False
     for entry in entries:
         if not isinstance(entry, dict):
@@ -2940,7 +2940,7 @@ def enter_third_party_mode(dry_run: bool = False) -> int:
     selected = next((entry for entry in entries if entry["id"] == applied_id), entries[0])
 
     existing_entries = meta.get("entries")
-    names_by_id: dict[str, str] = {}
+    names_by_id: Dict[str, str] = {}
     if isinstance(existing_entries, list):
         for entry in existing_entries:
             if not isinstance(entry, dict):
@@ -2949,8 +2949,8 @@ def enter_third_party_mode(dry_run: bool = False) -> int:
             if entry_id:
                 names_by_id[entry_id] = nonempty_string(entry.get("name")) or entry_id
 
-    normalized_entries: list[dict[str, str]] = []
-    seen_ids: set[str] = set()
+    normalized_entries: List[Dict[str, str]] = []
+    seen_ids: Set[str] = set()
     for entry in entries:
         entry_id = entry["id"]
         normalized_entries.append({"id": entry_id, "name": names_by_id.get(entry_id) or entry["name"] or "Default"})
@@ -3158,7 +3158,7 @@ def check_third_party_sources() -> int:
     return 10
 
 
-def prompt_line(prompt: str) -> str | None:
+def prompt_line(prompt: str) -> Optional[str]:
     try:
         return input(prompt).replace("\x00", "").strip()
     except EOFError:
@@ -3167,7 +3167,7 @@ def prompt_line(prompt: str) -> str | None:
         return None
 
 
-def choose_desktop_third_party_source(sources: list[dict[str, Any]]) -> Path | None:
+def choose_desktop_third_party_source(sources: List[Dict[str, Any]]) -> Optional[Path]:
     if not sources:
         print("没有可同步的 Claude Desktop API 模式配置。")
         return None
@@ -3262,14 +3262,14 @@ def third_party_config_wizard() -> int:
         print("未知选项。")
 
 
-def sync_candidate_dirs() -> list[Path]:
+def sync_candidate_dirs() -> List[Path]:
     paths = [
         portable_user_data_dir(),
         *legacy_portable_user_data_dirs(),
         *official_user_data_dirs(),
     ]
-    unique: list[Path] = []
-    seen: set[str] = set()
+    unique: List[Path] = []
+    seen: Set[str] = set()
     for path in paths:
         key = str(path).lower()
         if key not in seen:
@@ -3291,7 +3291,7 @@ def data_dir_label(path: Path) -> str:
     return "Claude 数据空间"
 
 
-def choose_data_dir(candidates: list[Path], title: str, *, require_exists: bool) -> Path | None:
+def choose_data_dir(candidates: List[Path], title: str, *, require_exists: bool) -> Optional[Path]:
     shown = [path for path in candidates if path.exists() or not require_exists]
     if not shown:
         print("没有找到可选的数据空间。")
@@ -3351,7 +3351,7 @@ def sync_light_user_data(source_dir: Path, target_dir: Path, dry_run: bool = Fal
     return 0
 
 
-def choose_config_library_source() -> Path | None:
+def choose_config_library_source() -> Optional[Path]:
     sources = []
     for path in sync_candidate_dirs():
         library = third_party_config_library_dir(path)
@@ -3445,10 +3445,10 @@ def import_sync_wizard() -> int:
         print("未知选项。")
 
 
-def asar_file_entries(header: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
-    entries: list[tuple[str, dict[str, Any]]] = []
+def asar_file_entries(header: Dict[str, Any]) -> List[Tuple[str, Dict[str, Any]]]:
+    entries: List[Tuple[str, Dict[str, Any]]] = []
 
-    def walk(node: dict[str, Any], prefix: str = "") -> None:
+    def walk(node: Dict[str, Any], prefix: str = "") -> None:
         files = node.get("files")
         if isinstance(files, dict):
             for name, child in files.items():
@@ -3462,7 +3462,7 @@ def asar_file_entries(header: dict[str, Any]) -> list[tuple[str, dict[str, Any]]
     return entries
 
 
-def parse_asar(data: bytes) -> tuple[int, int, int, dict[str, Any]]:
+def parse_asar(data: bytes) -> Tuple[int, int, int, Dict[str, Any]]:
     if len(data) < 16:
         raise ValueError("ASAR file is too small.")
     header_size = struct.unpack_from("<I", data, 4)[0]
@@ -3493,7 +3493,7 @@ def asar_header_hash(data: bytes) -> str:
     return sha256_hex(data[json_start:json_end])
 
 
-def sha256_blocks(data: bytes, block_size: int) -> list[str]:
+def sha256_blocks(data: bytes, block_size: int) -> List[str]:
     if block_size <= 0:
         return [sha256_hex(data)]
     if not data:
@@ -3511,7 +3511,7 @@ def patch_asar_file_bytes(
     asar: Path,
     target_path: str,
     patcher: Any,
-) -> tuple[bool, str, str]:
+) -> Tuple[bool, str, str]:
     data = asar.read_bytes()
     json_start, json_end, content_base, header = parse_asar(data)
     old_header_hash = sha256_hex(data[json_start:json_end])
@@ -3521,7 +3521,7 @@ def patch_asar_file_bytes(
     if not target_entry:
         raise SystemExit(f"Cannot patch ASAR because {target_path} was not found.")
 
-    original_chunks: dict[str, bytes] = {}
+    original_chunks: Dict[str, bytes] = {}
     for path, entry in entries:
         try:
             offset = content_base + int(entry["offset"])
@@ -3543,7 +3543,7 @@ def patch_asar_file_bytes(
         key=lambda item: int(item[1]["offset"]),
     )
     offset = 0
-    chunks: list[bytes] = []
+    chunks: List[bytes] = []
     for path, entry in sorted_entries:
         chunk = patched_target if path == target_path else original_chunks[path]
         entry["offset"] = str(offset)
@@ -3577,7 +3577,7 @@ def patch_asar_file_content_and_integrity(
     asar: Path,
     old_token: bytes,
     new_token: bytes,
-) -> tuple[int, int, str, str]:
+) -> Tuple[int, int, str, str]:
     if len(old_token) != len(new_token):
         raise ValueError("ASAR in-place token replacements must keep the same byte length.")
 
@@ -3617,7 +3617,7 @@ def patch_asar_file_content_and_integrity(
         new_blocks = sha256_blocks(patched_chunk, block_size)
 
         header_bytes = header_bytes.replace(old_hash.encode("ascii"), new_hash.encode("ascii"))
-        for old_block, new_block in zip(old_blocks, new_blocks, strict=False):
+        for old_block, new_block in zip(old_blocks, new_blocks):
             if isinstance(old_block, str):
                 header_bytes = header_bytes.replace(old_block.encode("ascii"), new_block.encode("ascii"))
 
@@ -3647,8 +3647,8 @@ def patch_asar_file_content_and_integrity(
     return patched_files, patched_tokens, old_header_hash, new_header_hash
 
 
-def backup_header_hashes(asar: Path) -> list[str]:
-    hashes: list[str] = []
+def backup_header_hashes(asar: Path) -> List[str]:
+    hashes: List[str] = []
     for backup in sorted(asar.parent.glob(f"{asar.name}.bak-*"), reverse=True):
         try:
             header_hash = asar_header_hash(backup.read_bytes())
@@ -3662,7 +3662,7 @@ def backup_header_hashes(asar: Path) -> list[str]:
 def patch_exe_asar_header_hash(
     app_dir: Path,
     expected_hash: str,
-    old_hashes: list[str],
+    old_hashes: List[str],
     reason: str = "before-asar-hash-update",
 ) -> None:
     exe = app_exe(app_dir)
@@ -3710,7 +3710,7 @@ def padded_utf8_replacement(source: str, target: str) -> bytes:
     return target_bytes + (b" " * (len(source_bytes) - len(target_bytes)))
 
 
-def count_asar_tokens(asar: Path, tokens: list[bytes]) -> dict[bytes, int]:
+def count_asar_tokens(asar: Path, tokens: List[bytes]) -> Dict[bytes, int]:
     data = asar.read_bytes()
     _, _, content_base, header = parse_asar(data)
     counts = {token: 0 for token in tokens}
@@ -3732,13 +3732,13 @@ def patch_hardcoded_desktop_menu_strings(app_dir: Path, dry_run: bool = False) -
         print(f"Claude app.asar was not found, skipping desktop menu string patch: {asar}")
         return 0
 
-    menu_replacements: dict[str, str] = {
+    menu_replacements: Dict[str, str] = {
         "Enable Main Process Debugger": "启用主进程调试器",
         "Record Performance Trace": "记录性能跟踪",
         "Write Main Process Heap Snapshot": "写入主进程堆快照",
         "Record Memory Trace (auto-stop)": "内存跟踪(自动停止)",
     }
-    replacements: list[tuple[bytes, bytes]] = []
+    replacements: List[Tuple[bytes, bytes]] = []
     for source, target in menu_replacements.items():
         try:
             replacements.append((source.encode("utf-8"), padded_utf8_replacement(source, target)))
@@ -3756,7 +3756,7 @@ def patch_hardcoded_desktop_menu_strings(app_dir: Path, dry_run: bool = False) -
         return 0
 
     backup = backup_file(asar, "before-desktop-menu-zh-CN")
-    old_header_hashes: list[str] = []
+    old_header_hashes: List[str] = []
     final_header_hash = asar_header_hash(asar.read_bytes())
     patched_total = 0
     patched_files_total = 0
@@ -3799,7 +3799,7 @@ def patch_hardcoded_desktop_menu_strings(app_dir: Path, dry_run: bool = False) -
     return 0
 
 
-def patch_binary_tokens(path: Path, replacements: list[tuple[bytes, bytes]], reason: str, label: str, dry_run: bool = False) -> int:
+def patch_binary_tokens(path: Path, replacements: List[Tuple[bytes, bytes]], reason: str, label: str, dry_run: bool = False) -> int:
     if not path.exists():
         print(f"{label} was not found, skipping: {path}")
         return 0
@@ -3876,7 +3876,7 @@ def patch_asar_namespace_tokens(app_dir: Path, dry_run: bool = False) -> int:
         return 0
 
     backup = backup_file(asar, "before-cowork-namespace")
-    old_header_hashes: list[str] = []
+    old_header_hashes: List[str] = []
     final_header_hash = asar_header_hash(asar.read_bytes())
     patched_total = 0
     patched_files_total = 0
@@ -4014,7 +4014,7 @@ def apply_cowork_compat(app_dir: Path, dry_run: bool = False) -> int:
     return 0
 
 
-def bundle_runtime_file_names() -> list[str]:
+def bundle_runtime_file_names() -> List[str]:
     return [
         "rootfs.vhdx",
         "rootfs.vhdx.zst",
@@ -4033,7 +4033,7 @@ def bundle_runtime_file_names() -> list[str]:
     ]
 
 
-def cowork_bundle_candidates() -> list[Path]:
+def cowork_bundle_candidates() -> List[Path]:
     paths = [
         portable_user_data_dir() / "vm_bundles" / "claudevm.bundle",
         roaming_app_data() / "Claude-3p" / "vm_bundles" / "claudevm.bundle",
@@ -4044,8 +4044,8 @@ def cowork_bundle_candidates() -> list[Path]:
         for package in packages.glob("Claude_*"):
             paths.append(package / "LocalCache/Roaming/Claude-3p/vm_bundles/claudevm.bundle")
             paths.append(package / "LocalCache/Local/Claude-3p/vm_bundles/claudevm.bundle")
-    unique: list[Path] = []
-    seen: set[str] = set()
+    unique: List[Path] = []
+    seen: Set[str] = set()
     for path in paths:
         key = str(path).lower()
         if key not in seen:
@@ -4098,7 +4098,7 @@ def repair_portable_cowork_runtime(dry_run: bool = False) -> int:
     return 0
 
 
-def cleanup_cowork_residue(target: str | None = None) -> int:
+def cleanup_cowork_residue(target: Optional[str] = None) -> int:
     target_label = target or "portable-safe"
     force_official = "$true" if target == "portable" else "$false"
     force_portable = "$true" if target == "official" else "$false"
@@ -4259,7 +4259,7 @@ def set_user_locale(dry_run: bool) -> None:
             print(f"[dry-run] Would set Claude config locale: {config}")
             continue
 
-        data: dict[str, Any] = {}
+        data: Dict[str, Any] = {}
         should_backup = False
         if config.exists():
             try:
@@ -4288,7 +4288,7 @@ def enable_developer_mode(dry_run: bool) -> None:
             print(f"[dry-run] Would enable Claude developer mode: {settings}")
             continue
 
-        data: dict[str, Any] = {}
+        data: Dict[str, Any] = {}
         should_backup = False
         if settings.exists():
             try:

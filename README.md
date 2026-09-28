@@ -451,3 +451,10 @@ MIT. See [LICENSE](LICENSE).
 ## 友情链接
 
 - [LINUX DO](https://linux.do/)
+
+## 遇到配置问题？
+
+数据不互通、第三方 API 识别不到模型、多实例冲突、更新后汉化失效 —— 这几类问题我可以远程排查（付费，明码标价：
+诊断 ¥99，修好 ¥399，修不好不收）：<https://fomo-run.github.io/agent-pack-support/>
+工具本身依然免费开源，自己照着文档啃也可以。
+
